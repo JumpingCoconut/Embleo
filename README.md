@@ -27,7 +27,7 @@ Game APK v.1.6.0 (not XAPK) is required.
 4. Drag-and-drop the game **APK** onto the `apk_patcher.py` file.
 - You can also put the APK in the same folder as `apk_patcher.py` and double-click the script.
 6. Type in **Game Server URL** and press Enter 
-  -  You can find the URL in the **" \* Running on http://192..."** line after double-clicking the `server.py`. (Example URL: http://192.168.0.50:5001) 
+  -  You can find the URL in the **" \* Running on http://192..."** line after double-clicking the `run_server.py`. (Example URL: http://192.168.0.50:5001) 
 6. 2 patched APKs will appear in the same folder as your original APK.
 7. Install the APK with **edited-aligned-debugSigned.apk** at the end
 
