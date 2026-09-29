@@ -305,45 +305,30 @@ def adapt_gimmicks_for_episode_layout(debug_data, episode_id):
 
 	add_area_gimmicks = True
 
+	# "Pre-packaged" gimmicks, that are implied to be present on a map
 	if add_area_gimmicks:
-		# Also add all area gimmicks
-		scenario_gimmick_id_list = get_all_episode_scenario_gimmick_id_list(episode_id)
-
 		# Get all area IDs
 		episode_area_id_list = get_episode_area_id_list(episode_id)
 
 		# Get all area gimmicks
 		stage_option_gimmick_data = load_json("./data/masterdata/StageOptionGimmickMasterData.json")
 
-		stage_option_area_gimmicks = {}
-
+		# Go through all optional gimmicks and add only those,
+		# which appear in used locations
 		for area_entry in stage_option_gimmick_data["Datas"]:
 			stage_map_id = area_entry["_id"]
 
-			# Limit stage id only to the ones loaded by the episode
-			# to prevent assigning similar, but incorrect StageMapId
-			# May not work properly if episode loads different variants
-			# of the same area, which have the same gimmick ids
 			if stage_map_id in episode_area_id_list:
 
 				for gimmick in area_entry["infos"]:
-					gimmick_id = gimmick["_id"]
+					adapted_gimmick = adapt_episode_layout_gimmick(gimmick)
 
-					area_gimmick = {
-						"StageMapID": stage_map_id,
-						"Gimmick": gimmick
-					}
+					# Assign StageMapID, so the gimmick appears where it should.
+					adapted_gimmick["StageMapID"] = stage_map_id
 
-					stage_option_area_gimmicks[gimmick_id] = area_gimmick
+					# gimmick_id = gimmick["_id"]
+					# print(adapted_gimmick["StageMapID"], gimmick_id)
 
-		for gimmick_id in scenario_gimmick_id_list:
-			if gimmick_id in stage_option_area_gimmicks:
-				gimmick = adapt_episode_layout_gimmick(stage_option_area_gimmicks[gimmick_id]["Gimmick"])
-
-				# Assign StageMapID, so the gimmick appears where it should.
-				gimmick["StageMapID"] = stage_option_area_gimmicks[gimmick_id]["StageMapID"]
-				# print(gimmick["StageMapID"], gimmick_id)
-
-				gimmicks.append(gimmick)
+					gimmicks.append(adapted_gimmick)
 
 	return gimmicks
