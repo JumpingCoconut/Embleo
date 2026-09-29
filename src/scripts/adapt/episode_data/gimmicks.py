@@ -30,6 +30,42 @@ def get_all_episode_scenario_gimmick_id_list(episode_id):
 	return episode_scenario_gimmicks_id_list
 
 
+def get_episode_location_id_list(episode_id):
+	location_id_list = []
+
+	episode_master_data_path = "./data/extract/masterdata/EpisodeMasterDataObject.json"
+	episode_master_data_object = load_json(episode_master_data_path)
+
+	for entry in episode_master_data_object["Datas"]:
+		if episode_id == entry["ID"]:
+			location_id_list = entry["_locationIDs"]
+
+	return location_id_list
+
+
+def get_episode_area_id_list(episode_id):
+	area_id_list = []
+
+	episode_location_id_list = get_episode_location_id_list(episode_id)
+
+	stage_location_data_path = "./data/extract/masterdata/StageLocationMasterDataObject.json"
+	stage_location_data = load_json(stage_location_data_path)
+
+	# Get all area ids
+	for entry in stage_location_data["Datas"]:
+		location_id = entry["_id"]
+
+		if location_id in episode_location_id_list:
+
+			for stage_map in entry["_stageMapInfos"]:
+
+				# 0 means area, 2 is sky and horizon texture
+				if stage_map["_situation"] == 0:
+					area_id_list.append(stage_map["_id"])
+
+	return area_id_list
+
+
 # episode layout gimmicks
 def adapt_episode_layout_gimmick(entry):
 	gimmick = {
@@ -40,7 +76,7 @@ def adapt_episode_layout_gimmick(entry):
 			"Status": entry["_startStatus"],
 			"ScenarioNo": [entry["_startScenarioNo"], entry["_endScenarioNo"]]
 		}],
-		# "StartType": entry["_startStatus"],
+		# "StartType": 1,
 
 		# "StageMapID" : "SCH01_Area01",
 
@@ -273,7 +309,10 @@ def adapt_gimmicks_for_episode_layout(debug_data, episode_id):
 		# Also add all area gimmicks
 		scenario_gimmick_id_list = get_all_episode_scenario_gimmick_id_list(episode_id)
 
-		# Get all area ids
+		# Get all area IDs
+		episode_area_id_list = get_episode_area_id_list(episode_id)
+
+		# Get all area gimmicks
 		stage_option_gimmick_data = load_json("./data/masterdata/StageOptionGimmickMasterData.json")
 
 		stage_option_area_gimmicks = {}
@@ -281,15 +320,21 @@ def adapt_gimmicks_for_episode_layout(debug_data, episode_id):
 		for area_entry in stage_option_gimmick_data["Datas"]:
 			stage_map_id = area_entry["_id"]
 
-			for gimmick in area_entry["infos"]:
-				gimmick_id = gimmick["_id"]
+			# Limit stage id only to the ones loaded by the episode
+			# to prevent assigning similar, but incorrect StageMapId
+			# May not work properly if episode loads different variants
+			# of the same area, which have the same gimmick ids
+			if stage_map_id in episode_area_id_list:
 
-				area_gimmick = {
-					"StageMapID": stage_map_id,
-					"Gimmick": gimmick
-				}
+				for gimmick in area_entry["infos"]:
+					gimmick_id = gimmick["_id"]
 
-				stage_option_area_gimmicks[gimmick_id] = area_gimmick
+					area_gimmick = {
+						"StageMapID": stage_map_id,
+						"Gimmick": gimmick
+					}
+
+					stage_option_area_gimmicks[gimmick_id] = area_gimmick
 
 		for gimmick_id in scenario_gimmick_id_list:
 			if gimmick_id in stage_option_area_gimmicks:
