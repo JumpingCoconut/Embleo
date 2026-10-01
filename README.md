@@ -1,3 +1,5 @@
+This is a fork of [Spreit/Embleo](https://github.com/Spreit/Embleo) for development purposes. Please check out the main project there.
+
 **Embleo** is a WIP server emulator for a vertical mobile anime game.
 
 # How to play
