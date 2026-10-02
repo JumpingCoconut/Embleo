@@ -14,16 +14,12 @@
 # Runs on port 5001.
 
 import datetime
-import html
 import json
 import os
 import secrets
-import subprocess
 # import sqlite3
 import time
 import urllib
-import urllib.parse
-import urllib.request
 # import logging
 from pathlib import Path
 
@@ -64,9 +60,6 @@ BASE_DIR = Path(__file__).resolve().parent
 RESP_DIR = BASE_DIR / "offline_responses"
 
 MSGPACK_CONTENT_TYPE = "application/x-msgpack"
-SERVER_VERSION_URL = "https://embleo.duckdns.org/version.json"
-SERVER_IDENTITY_CACHE_SECONDS = 60
-_server_identity_cache = {}
 
 # app.register_blueprint(challenge_mission, url_prefix="/api/challenge-mission/")
 
@@ -139,112 +132,6 @@ def parse_query_params(request_url):
 	query_params = urllib.parse.parse_qs(parsed_url.query)
 
 	return query_params
-
-
-def run_git_metadata(*args):
-	try:
-		result = subprocess.run(
-			["git", *args],
-			cwd=BASE_DIR,
-			capture_output=True,
-			check=False,
-			text=True,
-			timeout=2
-		)
-	except (OSError, subprocess.TimeoutExpired):
-		return ""
-
-	return result.stdout.strip() if result.returncode == 0 else ""
-
-
-def get_repository_name():
-	repository = os.getenv("EMBLEO_REPOSITORY") or os.getenv("GITHUB_REPOSITORY")
-	if repository:
-		return repository
-
-	remote = run_git_metadata("remote", "get-url", "origin")
-	if remote.startswith("git@") and ":" in remote:
-		remote_path = remote.split(":", 1)[1]
-	else:
-		remote_path = urllib.parse.urlsplit(remote).path
-	return remote_path.strip("/").removesuffix(".git") or "unknown"
-
-
-def get_server_identity(host):
-	now = time.monotonic()
-	cache_entry = _server_identity_cache.get(host)
-	if cache_entry and now - cache_entry["cached_at"] < SERVER_IDENTITY_CACHE_SECONDS:
-		return cache_entry["identity"]
-
-	branch = os.getenv("EMBLEO_BRANCH") or os.getenv("GITHUB_REF_NAME") or run_git_metadata("branch", "--show-current")
-	revision = os.getenv("EMBLEO_COMMIT") or os.getenv("GITHUB_SHA") or run_git_metadata("rev-parse", "HEAD")
-	commit_date = os.getenv("EMBLEO_COMMIT_DATE") or run_git_metadata("show", "-s", "--format=%cI", "HEAD")
-	deployed_at = os.getenv("EMBLEO_DEPLOYED_AT", "")
-	mode = os.getenv("EMBLEO_MODE", "")
-	repository = get_repository_name()
-	working_tree_status = run_git_metadata("status", "--porcelain")
-	working_tree = "modified" if working_tree_status else "clean" if revision else "unknown"
-
-	hostname = urllib.parse.urlsplit("//" + host).hostname
-	if hostname and hostname.lower() == "embleo.duckdns.org":
-		try:
-			with urllib.request.urlopen(SERVER_VERSION_URL, timeout=3) as response:
-				deployed_metadata = json.load(response)
-			if isinstance(deployed_metadata, dict):
-				branch = deployed_metadata.get("label") or branch
-				revision = deployed_metadata.get("revision") or revision
-				commit_date = deployed_metadata.get("commit_date") or commit_date
-				deployed_at = deployed_metadata.get("deployed_at") or deployed_at
-				mode = deployed_metadata.get("mode") or mode
-				repository_url = deployed_metadata.get("repository", "")
-				if repository_url:
-					repository = urllib.parse.urlsplit(repository_url).path.strip("/").removesuffix(".git")
-		except Exception as error:
-			print("Unable to load deployed version metadata:", type(error).__name__)
-
-	branch = branch or "unknown"
-	if not mode:
-		if hostname and hostname.lower() == "embleo.duckdns.org":
-			mode = "development" if branch == "development" else "main" if branch == "main" else "unknown"
-		else:
-			mode = "local"
-	identity = {
-		"host": host or "unknown",
-		"mode": mode,
-		"repository": repository,
-		"branch": branch,
-		"revision": revision or "unknown",
-		"commit_date": commit_date or "unknown",
-		"deployed_at": deployed_at or "unknown",
-		"working_tree": working_tree
-	}
-	_server_identity_cache[host] = {"cached_at": now, "identity": identity}
-	return identity
-
-
-def build_news_list_response(host, scheme="http"):
-	news_response = load_json("./offline_responses/api/news/list.json")
-	news_item = next((item for item in news_response.get("News", []) if item.get("NewsId") == "test"), None)
-	if news_item is None:
-		return news_response
-
-	identity = get_server_identity(host)
-	short_revision = identity["revision"][:7] if identity["revision"] != "unknown" else "unknown"
-	mode_label = {
-		"development": "Dev",
-		"main": "Main",
-		"local": "Local"
-	}.get(identity["mode"], "Unknown")
-	hostname = urllib.parse.urlsplit("//" + host).hostname
-	server_url = "https://{0}".format(host) if hostname and hostname.lower() == "embleo.duckdns.org" else "{0}://{1}".format(scheme, host)
-	news_item["Title"] = "Server: {0} {1}".format(mode_label, short_revision)
-	news_item["Content"] = "{0}<br><b>{1} / {2} / {3}</b>".format(
-		html.escape(server_url),
-		html.escape(identity["repository"]),
-		html.escape(identity["branch"]),
-		html.escape(identity["commit_date"][:10])
-	)
-	return news_response
 
 
 def SerVec2toVec2(SerializableVector2):
@@ -2009,12 +1896,6 @@ def upload_icon():
 	}
 
 	return Response(pack_json_response(response_json), content_type=MSGPACK_CONTENT_TYPE)
-
-
-@app.route("/api/news/list", methods=["GET", "POST"])
-def news_list():
-	news_response = build_news_list_response(request.host, request.scheme)
-	return Response(pack_json_response(news_response), content_type=MSGPACK_CONTENT_TYPE)
 
 
 # Catch-all for any path
