@@ -3,7 +3,7 @@
         {
             "NewsId": "test",
             "Title": "Luminaria is Dead",
-            "Content": "Next time on Tales of Gacha:<br><b>End of Service</b>",
+            "Content": "Next time on Tales of Gacha:<br><b>End of Service</b><br><img src=\"https://cdn.discordapp.com/emojis/923306640017616946.webp\">",
             "StartAt": 1658250000,
             "EndAt": 1784480400,
             "IsNew": false,
