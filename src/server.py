@@ -52,6 +52,16 @@ EPISODE_LAYOUT_GIMMICK_STATUS_OVERRIDES = {
 	}
 }
 
+EPISODE_SCENARIO_GIMMICK_OPEN_FLAG_OVERRIDES = {
+	"pl018_ep002": {
+		"Gim_Gate_Cp0401": 0,
+		"Gim_Gate_Cp0402": 0,
+		"Gim_Gate_Cp0403": 0,
+		"Gim_Gate_Cp0405": 0,
+		"Gim_Gate_Cp0406": 0,
+	}
+}
+
 FAKE_CHECKPOINT_PATH = "./checkpoint.txt"
 
 
@@ -684,6 +694,16 @@ def fill_episode_detail_by_episode_id(episode_id):
 		overridden_status = gimmick_status_overrides.get(gimmick.get("EpisodeGimmickId"))
 		if overridden_status is not None:
 			gimmick["Status"][0]["Status"] = overridden_status
+
+	if SKIP_BATTLES:
+		gimmick_flag_overrides = EPISODE_SCENARIO_GIMMICK_OPEN_FLAG_OVERRIDES.get(episode_id, {})
+		for gimmick_group in EpisodeDetail["ScenarioGroup"]["Gimmicks"]:
+			for gimmick in gimmick_group["Gimmicks"]:
+				if gimmick.get("Status") != 3:
+					continue
+				overridden_flag = gimmick_flag_overrides.get(gimmick.get("GimmickId"))
+				if overridden_flag is not None:
+					gimmick["Flag"] = overridden_flag
 
 	# EventDrops can be found in scenario ProgressScript, that give out dishes
 	EpisodeDetail["EventDrops"] = fill_event_drops_by_episode_id(episode_id)
