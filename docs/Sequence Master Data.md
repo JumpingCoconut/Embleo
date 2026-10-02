@@ -2,7 +2,7 @@
 
 ## Scope
 
-`src/data/extract/masterdatadebug/SequenceMasterDataObject.json` is a Unity-serialized combat sequence database. It describes character and enemy attack clips, movement, and per-sequence parameter overrides. It is not episode progression data: it has no episode IDs, episode gimmick IDs, scenario numbers, or gate statuses. Ana-Maria's Chapter 4 gates come from episode gimmick and scenario master data instead.
+`src/data/extract/masterdatadebug/SequenceMasterDataObject.json` is a Unity-serialized combat sequence database. It describes character and enemy attack clips, movement, and per-sequence parameter overrides. It does not describe episode progression or map gimmick state; those are separate data paths covered in [Episode Gimmicks and Scenario Progression](episode/Episode%20Gimmicks%20and%20Scenario%20Progression.md).
 
 This reference describes the extracted file and the adapter in `src/scripts/adapt/master_data/sequence.py`. Counts below describe the current local extraction and can change when game data is refreshed.
 
@@ -17,7 +17,7 @@ The root object contains Unity metadata (`m_GameObject`, `m_Enabled`, `m_Script`
 | `updateParameterList` | 20 wrappers; 876 settings | Per-sequence parameter overrides, grouped under `UpdateParameterSetting` |
 | `noUse` | Integer (`1`) | Present in the source; runtime meaning unknown |
 
-Each wrapper has one category key whose value is an array of settings. Use the full key `(collection, category, id, sequenceName)` to identify a record: the same owner and sequence name can occur in different collections, such as `pl009` / `Charge3` in both `AttackSetting` and `MoveSetting`. In this extraction, IDs containing `pl` are treated as character IDs; other IDs are adapted as enemy IDs. This is the adapter's substring-based convention, not a universal type system.
+Each wrapper has one category key whose value is an array of settings. Use the full key `(collection, category, id, sequenceName)` to identify a record: the same owner and sequence name can occur in multiple collections because attack, movement, and update-parameter sequences are independent. In this extraction, IDs containing `pl` are treated as character IDs; other IDs are adapted as enemy IDs. This is the adapter's substring-based convention, not a universal type system.
 
 ## Setting Types
 
@@ -175,7 +175,3 @@ All three data paths are under ignored `src/data/`. They are generated local dat
 7. **Validate the serving layer.** Confirm `MasterGroup.characterSequences` or `MasterGroup.enemySequences` contains the row in the API response. If the response is correct but behavior is not, investigate the existing client-consumed schema/semantics or other server data; do not assume changing another similarly named field will help.
 
 For a focused adapter test, call `adapt_debug_sequences_master_data` with a temporary output directory ending in a separator, then inspect the two generated files. Avoid rerunning the full asset download/extraction pipeline for an adapter-only change.
-
-## Relevance To Episode Gates
-
-Do not edit this Sequence file to open an episode gate. Gate initialization is assembled from `EpisodeGimmickMasterDataObject.json` into `EpisodeDetail.LayoutGroup`; scenario-time state changes come from the adapted episode scenario's `Gimmicks` operations. Those operations are transitions at specific progress IDs, not copies of initial layout state. Preserve their authored `Status` and `StartType`; if battle skipping requires bypassing a gate-open condition, use an explicit episode/gate-scoped `Flag` override on status-3 open operations rather than rewriting every operation for that gate. The meaning of each `Flag` value is not defined by the extracted data and must be verified against live behavior.
