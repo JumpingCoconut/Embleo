@@ -90,8 +90,10 @@ def adapt_stage_option_gimmicks(areas, stage_option_data):
 			seen.add(key)
 			gimmick = adapt_episode_layout_gimmick(entry)
 			if gimmick:
-				# The client loads the episode's map ID, not the prefab's name.
-				gimmick["StageMapID"] = stage_map_id
+				# Reused map variants retain the prefab's map-object name.
+				# StageMapID locates the built-in placement on that object;
+				# a location alias need not be the prefab's name.
+				gimmick["StageMapID"] = resource_map_id
 				gimmicks.append(gimmick)
 	return gimmicks
 
