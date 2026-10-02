@@ -696,9 +696,7 @@ def fill_scenario_list_from_scenario_file(episode_id):
 	return scenarios
 
 
-skip_scenario = {
-	"pl018_ep002": {5}
-}
+skip_scenario = [5]
 
 
 def fill_scenario_list_from_adapted_scenario(episode_id):
@@ -715,7 +713,7 @@ def fill_scenario_list_from_adapted_scenario(episode_id):
 			"ProgressId": entry["Id"]
 		}
 
-		if entry["ProgressType"] in skip_scenario.get(episode_id, set()):
+		if entry["ProgressType"] in skip_scenario:
 			continue
 
 		if SKIP_BATTLES:
