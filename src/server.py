@@ -222,7 +222,7 @@ def get_server_identity(host):
 	return identity
 
 
-def build_news_list_response(host):
+def build_news_list_response(host, scheme="http"):
 	news_response = load_json("./offline_responses/api/news/list.json")
 	news_item = next((item for item in news_response.get("News", []) if item.get("NewsId") == "test"), None)
 	if news_item is None:
@@ -231,11 +231,19 @@ def build_news_list_response(host):
 	identity = get_server_identity(host)
 	short_revision = identity["revision"][:7] if identity["revision"] != "unknown" else "unknown"
 	mode_label = {
-		"development": "DEV",
-		"main": "MAIN",
-		"local": "LOC"
-	}.get(identity["mode"], "SERVER")
-	news_item["Title"] = "{0} {1}".format(mode_label, short_revision)
+		"development": "Dev",
+		"main": "Main",
+		"local": "Local"
+	}.get(identity["mode"], "Unknown")
+	hostname = urllib.parse.urlsplit("//" + host).hostname
+	server_url = "https://{0}".format(host) if hostname and hostname.lower() == "embleo.duckdns.org" else "{0}://{1}".format(scheme, host)
+	news_item["Title"] = "Server: {0} {1}".format(mode_label, short_revision)
+	news_item["Content"] = "{0}<br><b>{1} / {2} / {3}</b>".format(
+		html.escape(server_url),
+		html.escape(identity["repository"]),
+		html.escape(identity["branch"]),
+		html.escape(identity["commit_date"][:10])
+	)
 	return news_response
 
 
@@ -2007,7 +2015,7 @@ def upload_icon():
 
 @app.route("/api/news/list", methods=["GET", "POST"])
 def news_list():
-	news_response = build_news_list_response(request.host)
+	news_response = build_news_list_response(request.host, request.scheme)
 	return Response(pack_json_response(news_response), content_type=MSGPACK_CONTENT_TYPE)
 
 
