@@ -2,10 +2,10 @@
     "News": [
         {
             "NewsId": "test",
-            "Title": "Development server connection",
-            "Content": "You are connected to embleo.duckdns.org. Check the server status there if you need to confirm which server is active.",
-            "StartAt": 1790899200,
-            "EndAt": 1791158399,
+            "Title": "Server connection information",
+            "Content": "This notice reports the host and build information of the server you are connected to. The public Embleo server is available at embleo.duckdns.org if you want to use it.",
+            "StartAt": 0,
+            "EndAt": 2147483647,
             "IsNew": true,
             "Status": 1
         },

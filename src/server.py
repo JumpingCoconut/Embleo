@@ -14,12 +14,16 @@
 # Runs on port 5001.
 
 import datetime
+import html
 import json
 import os
 import secrets
+import subprocess
 # import sqlite3
 import time
 import urllib
+import urllib.parse
+import urllib.request
 # import logging
 from pathlib import Path
 
@@ -80,6 +84,9 @@ BASE_DIR = Path(__file__).resolve().parent
 RESP_DIR = BASE_DIR / "offline_responses"
 
 MSGPACK_CONTENT_TYPE = "application/x-msgpack"
+SERVER_VERSION_URL = "https://embleo.duckdns.org/version.json"
+SERVER_IDENTITY_CACHE_SECONDS = 60
+_server_identity_cache = {}
 
 # app.register_blueprint(challenge_mission, url_prefix="/api/challenge-mission/")
 
@@ -152,6 +159,112 @@ def parse_query_params(request_url):
 	query_params = urllib.parse.parse_qs(parsed_url.query)
 
 	return query_params
+
+
+def run_git_metadata(*args):
+	try:
+		result = subprocess.run(
+			["git", *args],
+			cwd=BASE_DIR,
+			capture_output=True,
+			check=False,
+			text=True,
+			timeout=2
+		)
+	except (OSError, subprocess.TimeoutExpired):
+		return ""
+
+	return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def get_repository_name():
+	repository = os.getenv("EMBLEO_REPOSITORY") or os.getenv("GITHUB_REPOSITORY")
+	if repository:
+		return repository
+
+	remote = run_git_metadata("remote", "get-url", "origin")
+	if remote.startswith("git@") and ":" in remote:
+		remote_path = remote.split(":", 1)[1]
+	else:
+		remote_path = urllib.parse.urlsplit(remote).path
+	return remote_path.strip("/").removesuffix(".git") or "unknown"
+
+
+def get_server_identity(host):
+	now = time.monotonic()
+	cache_entry = _server_identity_cache.get(host)
+	if cache_entry and now - cache_entry["cached_at"] < SERVER_IDENTITY_CACHE_SECONDS:
+		return cache_entry["identity"]
+
+	branch = os.getenv("EMBLEO_BRANCH") or os.getenv("GITHUB_REF_NAME") or run_git_metadata("branch", "--show-current")
+	revision = os.getenv("EMBLEO_COMMIT") or os.getenv("GITHUB_SHA") or run_git_metadata("rev-parse", "HEAD")
+	commit_date = os.getenv("EMBLEO_COMMIT_DATE") or run_git_metadata("show", "-s", "--format=%cI", "HEAD")
+	deployed_at = os.getenv("EMBLEO_DEPLOYED_AT", "")
+	mode = os.getenv("EMBLEO_MODE", "")
+	repository = get_repository_name()
+	working_tree_status = run_git_metadata("status", "--porcelain")
+	working_tree = "modified" if working_tree_status else "clean" if revision else "unknown"
+
+	hostname = urllib.parse.urlsplit("//" + host).hostname
+	if hostname and hostname.lower() == "embleo.duckdns.org":
+		try:
+			with urllib.request.urlopen(SERVER_VERSION_URL, timeout=3) as response:
+				deployed_metadata = json.load(response)
+			if isinstance(deployed_metadata, dict):
+				branch = deployed_metadata.get("label") or branch
+				revision = deployed_metadata.get("revision") or revision
+				commit_date = deployed_metadata.get("commit_date") or commit_date
+				deployed_at = deployed_metadata.get("deployed_at") or deployed_at
+				mode = deployed_metadata.get("mode") or mode
+				repository_url = deployed_metadata.get("repository", "")
+				if repository_url:
+					repository = urllib.parse.urlsplit(repository_url).path.strip("/").removesuffix(".git")
+		except Exception as error:
+			print("Unable to load deployed version metadata:", type(error).__name__)
+
+	branch = branch or "unknown"
+	if not mode:
+		if hostname and hostname.lower() == "embleo.duckdns.org":
+			mode = "development" if branch == "development" else "main" if branch == "main" else "unknown"
+		else:
+			mode = "local"
+	identity = {
+		"host": host or "unknown",
+		"mode": mode,
+		"repository": repository,
+		"branch": branch,
+		"revision": revision or "unknown",
+		"commit_date": commit_date or "unknown",
+		"deployed_at": deployed_at or "unknown",
+		"working_tree": working_tree
+	}
+	_server_identity_cache[host] = {"cached_at": now, "identity": identity}
+	return identity
+
+
+def build_news_list_response(host):
+	news_response = load_json("./offline_responses/api/news/list.json")
+	news_item = next((item for item in news_response.get("News", []) if item.get("NewsId") == "test"), None)
+	if news_item is None:
+		return news_response
+
+	identity = get_server_identity(host)
+	short_revision = identity["revision"][:7] if identity["revision"] != "unknown" else "unknown"
+	news_item["Title"] = "{0} SERVER - {1} - {2}".format(
+		identity["mode"].upper(), identity["branch"], short_revision
+	)
+	news_item["Content"] = (
+		"Connected host: {0}<br>Mode: {1}<br>Repository: {2}<br>Branch: {3}<br>"
+		"Commit: {4}<br>Commit date: {5}<br>Deployed: {6}<br>Working tree: {7}<br>"
+		"The public Embleo server is available at embleo.duckdns.org."
+	).format(*(html.escape(str(identity[key])) for key in (
+		"host", "mode", "repository", "branch", "revision", "commit_date", "deployed_at", "working_tree"
+	)))
+	news_item["StartAt"] = int(time.time()) - 60
+	news_item["EndAt"] = 2147483647
+	news_item["IsNew"] = True
+	news_item["Status"] = 1
+	return news_response
 
 
 def SerVec2toVec2(SerializableVector2):
@@ -711,6 +824,96 @@ def fill_episode_detail_by_episode_id(episode_id):
 	return EpisodeDetail
 
 
+def apply_checkpoint_resume_state(episode_id, start_data):
+	episode_detail = start_data["EpisodeDetail"]
+	start_scenario_no = start_data["EpisodeDetailUser"].get("startScenarioNo", 0)
+	try:
+		start_scenario_no = int(start_scenario_no)
+	except (TypeError, ValueError):
+		return
+
+	if start_scenario_no <= 0:
+		return
+
+	scenario_group = episode_detail["ScenarioGroup"]
+	resume_progress_id = str(start_scenario_no)
+
+	if SKIP_BATTLES:
+		gimmick_flag_overrides = EPISODE_SCENARIO_GIMMICK_OPEN_FLAG_OVERRIDES.get(episode_id, {})
+		if gimmick_flag_overrides:
+			latest_gimmicks = {}
+			for gimmick_group in scenario_group["Gimmicks"]:
+				try:
+					progress_scenario_no = int(gimmick_group["ProgressGimmickId"])
+				except (KeyError, TypeError, ValueError):
+					continue
+				if progress_scenario_no > start_scenario_no:
+					continue
+				for gimmick in gimmick_group["Gimmicks"]:
+					gimmick_id = gimmick.get("GimmickId")
+					if gimmick_id not in gimmick_flag_overrides:
+						continue
+					latest_operation = latest_gimmicks.get(gimmick_id)
+					if latest_operation is None or progress_scenario_no >= latest_operation[0]:
+						latest_gimmicks[gimmick_id] = (progress_scenario_no, dict(gimmick))
+
+			if latest_gimmicks:
+				resume_gimmick_group = next(
+					(
+						group for group in scenario_group["Gimmicks"]
+						if group.get("ProgressGimmickId") == resume_progress_id
+					),
+					None
+				)
+				if resume_gimmick_group is None:
+					resume_gimmick_group = {"ProgressGimmickId": resume_progress_id, "Gimmicks": []}
+					scenario_group["Gimmicks"].append(resume_gimmick_group)
+
+				resume_gimmick_ids = {item.get("GimmickId") for item in resume_gimmick_group["Gimmicks"]}
+				for gimmick_id, (_, gimmick) in latest_gimmicks.items():
+					if gimmick_id not in resume_gimmick_ids:
+						if gimmick.get("Status") == 3:
+							gimmick["Flag"] = gimmick_flag_overrides[gimmick_id]
+						resume_gimmick_group["Gimmicks"].append(gimmick)
+
+	latest_bgm = None
+	latest_bgm_scenario_no = -1
+	for party_param in scenario_group["PartyParams"]:
+		try:
+			party_param_scenario_no = int(party_param["ProgressPartyParamId"])
+		except (KeyError, TypeError, ValueError):
+			continue
+		if party_param_scenario_no > start_scenario_no:
+			continue
+		for param in party_param.get("Params", []):
+			value = param.get("Value")
+			if param.get("ParamType") == 1 and isinstance(value, str) and value.startswith("BGM_"):
+				if party_param_scenario_no >= latest_bgm_scenario_no:
+					latest_bgm = value
+					latest_bgm_scenario_no = party_param_scenario_no
+
+	if latest_bgm is not None:
+		resume_party_param = next(
+			(
+				party_param for party_param in scenario_group["PartyParams"]
+				if party_param.get("ProgressPartyParamId") == resume_progress_id
+			),
+			None
+		)
+		if resume_party_param is None:
+			resume_party_param = {"ProgressPartyParamId": resume_progress_id, "Flags": [], "Params": []}
+			scenario_group["PartyParams"].append(resume_party_param)
+
+		resume_bgm_param = next(
+			(param for param in resume_party_param.setdefault("Params", []) if param.get("ParamType") == 1),
+			None
+		)
+		if resume_bgm_param is None:
+			resume_party_param["Params"].append({"ParamType": 1, "Value": latest_bgm})
+		else:
+			resume_bgm_param["Value"] = latest_bgm
+
+
 def fill_enemy_detail_by_episode_id(episode_id):
 	enemy_detail = {
 		"Enemies": []
@@ -960,6 +1163,8 @@ def episode_continue():
 
 	if episode_id in fake_checkpoint_data:
 		start_data["EpisodeDetailUser"]["startScenarioNo"] = fake_checkpoint_data[episode_id]
+
+	apply_checkpoint_resume_state(episode_id, start_data)
 
 	# MasterGroup
 	start_data["MasterGroup"] = fill_episode_master_group()
@@ -1932,6 +2137,12 @@ def upload_icon():
 	}
 
 	return Response(pack_json_response(response_json), content_type=MSGPACK_CONTENT_TYPE)
+
+
+@app.route("/api/news/list", methods=["GET", "POST"])
+def news_list():
+	news_response = build_news_list_response(request.host)
+	return Response(pack_json_response(news_response), content_type=MSGPACK_CONTENT_TYPE)
 
 
 # Catch-all for any path
