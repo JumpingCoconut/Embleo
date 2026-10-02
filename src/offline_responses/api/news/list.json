@@ -1,21 +1,12 @@
 {
     "News": [
         {
-            "NewsId": "dev-connection-check-20261002",
-            "Title": "DEV CONNECTION CHECK",
-            "Content": "If you can read this notice, the game is connected to the development server. Remove this notice after verification.",
+            "NewsId": "test",
+            "Title": "Development server connection",
+            "Content": "You are connected to embleo.duckdns.org. Check the server status there if you need to confirm which server is active.",
             "StartAt": 1790899200,
             "EndAt": 1791158399,
             "IsNew": true,
-            "Status": 1
-        },
-        {
-            "NewsId": "test",
-            "Title": "Luminaria is Dead",
-            "Content": "Next time on Tales of Gacha:<br><b>End of Service</b>",
-            "StartAt": 1658250000,
-            "EndAt": 1784480400,
-            "IsNew": false,
             "Status": 1
         },
 		{
