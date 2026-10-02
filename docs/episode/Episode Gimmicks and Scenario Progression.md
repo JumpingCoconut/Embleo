@@ -20,7 +20,7 @@ These are not duplicate representations. A scenario operation can change or rese
 3. The scenario adapter preserves gimmick operations from scenario progress records. The server groups those records while assembling `EpisodeDetail`.
 4. `server.py` returns both groups with the episode response.
 
-Built-in map gimmicks are resolved through the extracted `EpisodeMasterDataObject.json` location IDs and `StageLocationMasterDataObject.json` area records. A stage-option definition matching the area's `_id` takes precedence. If none exists, the adapter uses the final component of the area's `_resourcePath` to find the reused prefab's definition. The emitted `StageMapID` uses that resource name, rather than the location's area alias. For example, Ana-Maria Episode 2's `PLA01E_Area04` loads the `PLA01_Area04` prefab, whose root map object has the base name: its built-in gates receive `StageMapID: PLA01_Area04`. In contrast, `PLA01E_Area01` loads its own named map prefab, which explicitly references the same option-gimmick prefab as the daytime map, so its `StageMapID` remains `PLA01E_Area01`. Matching only area aliases can omit definitions; emitting aliases for reused prefabs can also mismatch their map-object names. The prefab names and option-prefab references are verified asset facts; Android testing is still required to confirm client lookup behavior. An explicitly empty variant definition is preserved; duplicate map/gimmick pairs are emitted once.
+Built-in map gimmicks are resolved through the extracted `EpisodeMasterDataObject.json` location IDs and `StageLocationMasterDataObject.json` area records. A stage-option definition matching the area's `_id` takes precedence. If none exists, the adapter uses the final component of the area's `_resourcePath` to find the reused prefab's definition. The emitted `StageMapID` uses that resource name, rather than the location's area alias. For example, Ana-Maria Episode 2's `PLA01E_Area04` loads the `PLA01_Area04` prefab, whose root map object has the base name: its built-in gates receive `StageMapID: PLA01_Area04`. In contrast, `PLA01E_Area01` loads its own named map prefab, which explicitly references the same option-gimmick prefab as the daytime map, so its `StageMapID` remains `PLA01E_Area01`. Matching only area aliases can omit definitions; emitting aliases for reused prefabs can also mismatch their map-object names. The prefab names and option-prefab references are verified asset facts. An explicitly empty variant definition is preserved; duplicate map/gimmick pairs are emitted once.
 
 The extracted and adapted files under `src/data/` are generated and ignored. For a persistent behavior change, update tracked adapter/server code rather than committing an edit to generated JSON.
 
@@ -50,14 +50,14 @@ The numeric meanings of `Status`, `StartType`, and `Flag` are not defined by the
 Consequences for debugging:
 
 - An empty `ScenarioGroup.Kills` confirms the kill operations were omitted from that response; it does not set later gimmick operations to their completed state.
-- A type-5 `skip_scenario` entry suppresses the corresponding scenario metadata entries for that episode; it is broad within that episode and is not a per-gate override.
+- A type-5 `skip_scenario` entry suppresses the corresponding scenario metadata entries across all episodes; it is not a per-gate override.
 - `EnemyDetail` can still contain master records for enemies in the episode. Its length alone does not prove that an encounter is currently spawned or active.
 - A later gate or switch operation may still carry a condition or flag even when the kill event is omitted. Any bypass should be explicit, scoped to the relevant episode and operation, and guarded by the server setting that requires it.
 - Preserve the operation's `Status`, `StartType`, progress ID, and other gates' data unless runtime evidence says they must change. Do not modify the client/APK to compensate for a server payload issue.
 
 ## Debugging Workflow
 
-1. Confirm the active server revision on `https://embleo.duckdns.org/version.json` before interpreting gameplay results.
+1. Confirm which server revision is running before interpreting gameplay results.
 2. Read the current resume point from `EpisodeDetailUser.startScenarioNo` in the episode-start response. See [Checkpoint and Save System](checkpoint%20and%20save%20system.md) for how this emulator handles checkpoints.
 3. Inspect the same response's `LayoutGroup`, `ScenarioGroup`, and `Scenarios`. Distinguish initial layout state from scenario-time operations and check whether the expected progress point is before or after the saved start point.
 4. Check whether the relevant kill/other progress event is included or filtered. Do not infer this from `EnemyDetail` alone.

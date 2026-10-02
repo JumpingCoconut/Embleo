@@ -1,8 +1,8 @@
-# Sequence Master Data
+# Sequence Master Data Further Information
 
 ## Scope
 
-`src/data/extract/masterdatadebug/SequenceMasterDataObject.json` is a Unity-serialized combat sequence database. It describes character and enemy attack clips, movement, and per-sequence parameter overrides. It does not describe episode progression or map gimmick state; those are separate data paths covered in [Episode Gimmicks and Scenario Progression](episode/Episode%20Gimmicks%20and%20Scenario%20Progression.md).
+`src/data/extract/masterdatadebug/SequenceMasterDataObject.json` is a Unity-serialized combat sequence database. It describes character and enemy attack clips, movement, and per-sequence parameter overrides. It does not describe episode progression or map gimmick state; those are separate data paths handled by the episode-data and scenario adapters.
 
 This reference describes the extracted file and the adapter in `src/scripts/adapt/master_data/sequence.py`. Counts below describe the current local extraction and can change when game data is refreshed.
 
