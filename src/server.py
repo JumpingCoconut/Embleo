@@ -696,7 +696,7 @@ def fill_scenario_list_from_scenario_file(episode_id):
 	return scenarios
 
 
-skip_scenario = [5]
+skip_scenario = []
 
 
 def fill_scenario_list_from_adapted_scenario(episode_id):

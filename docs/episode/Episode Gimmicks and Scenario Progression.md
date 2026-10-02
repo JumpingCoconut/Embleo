@@ -20,6 +20,8 @@ These are not duplicate representations. A scenario operation can change or rese
 3. The scenario adapter preserves gimmick operations from scenario progress records. The server groups those records while assembling `EpisodeDetail`.
 4. `server.py` returns both groups with the episode response.
 
+Built-in map gimmicks are resolved through the extracted `EpisodeMasterDataObject.json` location IDs and `StageLocationMasterDataObject.json` area records. A stage-option definition matching the area's `_id` takes precedence. If none exists, the adapter uses the final component of the area's `_resourcePath` to find the reused prefab's definition. The emitted `StageMapID` must still be the episode area's `_id`. For example, Ana-Maria Episode 2 uses `PLA01E_Area04`, whose prefab is `PLA01_Area04`: its gate IDs retain `PLA01_Area04_*`, but their `StageMapID` is `PLA01E_Area04`. Matching only area IDs omits those gates and leaves scenario operations without layout targets. An explicitly empty variant definition is preserved; duplicate map/gimmick pairs are emitted once.
+
 The extracted and adapted files under `src/data/` are generated and ignored. For a persistent behavior change, update tracked adapter/server code rather than committing an edit to generated JSON.
 
 ## State Model
@@ -43,7 +45,7 @@ The numeric meanings of `Status`, `StartType`, and `Flag` are not defined by the
 
 `SKIP_BATTLES` is a server-side filter, not a general "mark all battle requirements complete" operation. In the current server implementation it omits `Kills` and `EnemyParams` from `ScenarioGroup`, and filters progress types 3 and 14 from the episode `Scenarios` list. Other progress groups and gimmick operations are assembled separately.
 
-`skip_scenario` is a per-episode filter applied only to `EpisodeDetail.Scenarios`. ProgressType 5 represents gimmick scenarios; skipping type 5 for an episode removes all of that episode's type-5 scenario entries, not one selected gate. It does not remove `ScenarioGroup.Gimmicks`. Keep this filter episode-scoped unless suppressing every such scenario globally is intended.
+`skip_scenario` is a global progress-type filter applied only to `EpisodeDetail.Scenarios`, currently empty. ProgressType 5 represents gimmick scenarios; adding 5 removes every episode's type-5 entries. It does not remove `ScenarioGroup.Gimmicks`. A future episode-specific workaround should use an episode-scoped filter.
 
 Consequences for debugging:
 
