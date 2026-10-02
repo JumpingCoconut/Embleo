@@ -42,6 +42,16 @@ SKIP_BATTLES = True
 SKIP_VIDEOS = False
 SKIP_ROUTE_FORK_MERGE = False
 
+EPISODE_GIMMICK_STATUS_OVERRIDES = {
+	"pl018_ep002": {
+		"Gim_Gate_Cp0401": 3,
+		"Gim_Gate_Cp0402": 3,
+		"Gim_Gate_Cp0403": 3,
+		"Gim_Gate_Cp0405": 3,
+		"Gim_Gate_Cp0406": 3,
+	}
+}
+
 FAKE_CHECKPOINT_PATH = "./checkpoint.txt"
 
 
@@ -668,6 +678,18 @@ def fill_episode_detail_by_episode_id(episode_id):
 
 	EpisodeDetail["LayoutGroup"] = fill_episode_layout_group_by_episode_id(episode_id)
 	EpisodeDetail["ScenarioGroup"] = fill_scenario_group_from_adapted_scenario(episode_id)
+
+	gimmick_status_overrides = EPISODE_GIMMICK_STATUS_OVERRIDES.get(episode_id, {})
+	for gimmick in EpisodeDetail["LayoutGroup"]["Gimmicks"]:
+		overridden_status = gimmick_status_overrides.get(gimmick.get("EpisodeGimmickId"))
+		if overridden_status is not None:
+			gimmick["Status"][0]["Status"] = overridden_status
+
+	for gimmick_group in EpisodeDetail["ScenarioGroup"]["Gimmicks"]:
+		for gimmick in gimmick_group["Gimmicks"]:
+			overridden_status = gimmick_status_overrides.get(gimmick.get("GimmickId"))
+			if overridden_status is not None:
+				gimmick["Status"] = overridden_status
 
 	# EventDrops can be found in scenario ProgressScript, that give out dishes
 	EpisodeDetail["EventDrops"] = fill_event_drops_by_episode_id(episode_id)
