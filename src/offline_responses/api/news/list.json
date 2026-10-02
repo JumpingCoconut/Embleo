@@ -2,11 +2,11 @@
     "News": [
         {
             "NewsId": "test",
-            "Title": "Server connection information",
-            "Content": "This notice reports the host and build information of the server you are connected to. The public Embleo server is available at embleo.duckdns.org if you want to use it.",
-            "StartAt": 0,
-            "EndAt": 2147483647,
-            "IsNew": true,
+            "Title": "Luminaria is Dead",
+            "Content": "Next time on Tales of Gacha:<br><b>End of Service</b>",
+            "StartAt": 1658250000,
+            "EndAt": 1784480400,
+            "IsNew": false,
             "Status": 1
         },
 		{

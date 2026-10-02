@@ -236,12 +236,6 @@ def build_news_list_response(host):
 		"local": "LOC"
 	}.get(identity["mode"], "SERVER")
 	news_item["Title"] = "{0} {1}".format(mode_label, short_revision)
-	news_item["Content"] = (
-		"Connected to {0}; {1} {2} {3} ({4}). Public server: embleo.duckdns.org."
-	).format(
-		identity["host"], identity["repository"].rsplit("/", 1)[-1],
-		identity["branch"], short_revision, identity["commit_date"][:10]
-	)
 	return news_response
 
 
