@@ -46,26 +46,6 @@ SKIP_BATTLES = True
 SKIP_VIDEOS = False
 SKIP_ROUTE_FORK_MERGE = False
 
-EPISODE_LAYOUT_GIMMICK_STATUS_OVERRIDES = {
-	"pl018_ep002": {
-		"Gim_Gate_Cp0401": 3,
-		"Gim_Gate_Cp0402": 3,
-		"Gim_Gate_Cp0403": 3,
-		"Gim_Gate_Cp0405": 3,
-		"Gim_Gate_Cp0406": 3,
-	}
-}
-
-EPISODE_SCENARIO_GIMMICK_OPEN_FLAG_OVERRIDES = {
-	"pl018_ep002": {
-		"Gim_Gate_Cp0401": 0,
-		"Gim_Gate_Cp0402": 0,
-		"Gim_Gate_Cp0403": 0,
-		"Gim_Gate_Cp0405": 0,
-		"Gim_Gate_Cp0406": 0,
-	}
-}
-
 FAKE_CHECKPOINT_PATH = "./checkpoint.txt"
 
 
@@ -250,20 +230,18 @@ def build_news_list_response(host):
 
 	identity = get_server_identity(host)
 	short_revision = identity["revision"][:7] if identity["revision"] != "unknown" else "unknown"
-	news_item["Title"] = "{0} SERVER - {1} - {2}".format(
-		identity["mode"].upper(), identity["branch"], short_revision
-	)
+	mode_label = {
+		"development": "DEV",
+		"main": "MAIN",
+		"local": "LOC"
+	}.get(identity["mode"], "SERVER")
+	news_item["Title"] = "{0} {1}".format(mode_label, short_revision)
 	news_item["Content"] = (
-		"Connected host: {0}<br>Mode: {1}<br>Repository: {2}<br>Branch: {3}<br>"
-		"Commit: {4}<br>Commit date: {5}<br>Deployed: {6}<br>Working tree: {7}<br>"
-		"The public Embleo server is available at embleo.duckdns.org."
-	).format(*(html.escape(str(identity[key])) for key in (
-		"host", "mode", "repository", "branch", "revision", "commit_date", "deployed_at", "working_tree"
-	)))
-	news_item["StartAt"] = int(time.time()) - 60
-	news_item["EndAt"] = 2147483647
-	news_item["IsNew"] = True
-	news_item["Status"] = 1
+		"Connected to {0}; {1} {2} {3} ({4}). Public server: embleo.duckdns.org."
+	).format(
+		identity["host"], identity["repository"].rsplit("/", 1)[-1],
+		identity["branch"], short_revision, identity["commit_date"][:10]
+	)
 	return news_response
 
 
@@ -716,7 +694,9 @@ def fill_scenario_list_from_scenario_file(episode_id):
 	return scenarios
 
 
-skip_scenario = []
+skip_scenario = {
+	"pl018_ep002": {5}
+}
 
 
 def fill_scenario_list_from_adapted_scenario(episode_id):
@@ -733,7 +713,7 @@ def fill_scenario_list_from_adapted_scenario(episode_id):
 			"ProgressId": entry["Id"]
 		}
 
-		if entry["ProgressType"] in skip_scenario:
+		if entry["ProgressType"] in skip_scenario.get(episode_id, set()):
 			continue
 
 		if SKIP_BATTLES:
@@ -802,116 +782,10 @@ def fill_episode_detail_by_episode_id(episode_id):
 	EpisodeDetail["LayoutGroup"] = fill_episode_layout_group_by_episode_id(episode_id)
 	EpisodeDetail["ScenarioGroup"] = fill_scenario_group_from_adapted_scenario(episode_id)
 
-	gimmick_status_overrides = EPISODE_LAYOUT_GIMMICK_STATUS_OVERRIDES.get(episode_id, {})
-	for gimmick in EpisodeDetail["LayoutGroup"]["Gimmicks"]:
-		overridden_status = gimmick_status_overrides.get(gimmick.get("EpisodeGimmickId"))
-		if overridden_status is not None:
-			gimmick["Status"][0]["Status"] = overridden_status
-
-	if SKIP_BATTLES:
-		gimmick_flag_overrides = EPISODE_SCENARIO_GIMMICK_OPEN_FLAG_OVERRIDES.get(episode_id, {})
-		for gimmick_group in EpisodeDetail["ScenarioGroup"]["Gimmicks"]:
-			for gimmick in gimmick_group["Gimmicks"]:
-				if gimmick.get("Status") != 3:
-					continue
-				overridden_flag = gimmick_flag_overrides.get(gimmick.get("GimmickId"))
-				if overridden_flag is not None:
-					gimmick["Flag"] = overridden_flag
-
 	# EventDrops can be found in scenario ProgressScript, that give out dishes
 	EpisodeDetail["EventDrops"] = fill_event_drops_by_episode_id(episode_id)
 
 	return EpisodeDetail
-
-
-def apply_checkpoint_resume_state(episode_id, start_data):
-	episode_detail = start_data["EpisodeDetail"]
-	start_scenario_no = start_data["EpisodeDetailUser"].get("startScenarioNo", 0)
-	try:
-		start_scenario_no = int(start_scenario_no)
-	except (TypeError, ValueError):
-		return
-
-	if start_scenario_no <= 0:
-		return
-
-	scenario_group = episode_detail["ScenarioGroup"]
-	resume_progress_id = str(start_scenario_no)
-
-	if SKIP_BATTLES:
-		gimmick_flag_overrides = EPISODE_SCENARIO_GIMMICK_OPEN_FLAG_OVERRIDES.get(episode_id, {})
-		if gimmick_flag_overrides:
-			latest_gimmicks = {}
-			for gimmick_group in scenario_group["Gimmicks"]:
-				try:
-					progress_scenario_no = int(gimmick_group["ProgressGimmickId"])
-				except (KeyError, TypeError, ValueError):
-					continue
-				if progress_scenario_no > start_scenario_no:
-					continue
-				for gimmick in gimmick_group["Gimmicks"]:
-					gimmick_id = gimmick.get("GimmickId")
-					if gimmick_id not in gimmick_flag_overrides:
-						continue
-					latest_operation = latest_gimmicks.get(gimmick_id)
-					if latest_operation is None or progress_scenario_no >= latest_operation[0]:
-						latest_gimmicks[gimmick_id] = (progress_scenario_no, dict(gimmick))
-
-			if latest_gimmicks:
-				resume_gimmick_group = next(
-					(
-						group for group in scenario_group["Gimmicks"]
-						if group.get("ProgressGimmickId") == resume_progress_id
-					),
-					None
-				)
-				if resume_gimmick_group is None:
-					resume_gimmick_group = {"ProgressGimmickId": resume_progress_id, "Gimmicks": []}
-					scenario_group["Gimmicks"].append(resume_gimmick_group)
-
-				resume_gimmick_ids = {item.get("GimmickId") for item in resume_gimmick_group["Gimmicks"]}
-				for gimmick_id, (_, gimmick) in latest_gimmicks.items():
-					if gimmick_id not in resume_gimmick_ids:
-						if gimmick.get("Status") == 3:
-							gimmick["Flag"] = gimmick_flag_overrides[gimmick_id]
-						resume_gimmick_group["Gimmicks"].append(gimmick)
-
-	latest_bgm = None
-	latest_bgm_scenario_no = -1
-	for party_param in scenario_group["PartyParams"]:
-		try:
-			party_param_scenario_no = int(party_param["ProgressPartyParamId"])
-		except (KeyError, TypeError, ValueError):
-			continue
-		if party_param_scenario_no > start_scenario_no:
-			continue
-		for param in party_param.get("Params", []):
-			value = param.get("Value")
-			if param.get("ParamType") == 1 and isinstance(value, str) and value.startswith("BGM_"):
-				if party_param_scenario_no >= latest_bgm_scenario_no:
-					latest_bgm = value
-					latest_bgm_scenario_no = party_param_scenario_no
-
-	if latest_bgm is not None:
-		resume_party_param = next(
-			(
-				party_param for party_param in scenario_group["PartyParams"]
-				if party_param.get("ProgressPartyParamId") == resume_progress_id
-			),
-			None
-		)
-		if resume_party_param is None:
-			resume_party_param = {"ProgressPartyParamId": resume_progress_id, "Flags": [], "Params": []}
-			scenario_group["PartyParams"].append(resume_party_param)
-
-		resume_bgm_param = next(
-			(param for param in resume_party_param.setdefault("Params", []) if param.get("ParamType") == 1),
-			None
-		)
-		if resume_bgm_param is None:
-			resume_party_param["Params"].append({"ParamType": 1, "Value": latest_bgm})
-		else:
-			resume_bgm_param["Value"] = latest_bgm
 
 
 def fill_enemy_detail_by_episode_id(episode_id):
@@ -1163,8 +1037,6 @@ def episode_continue():
 
 	if episode_id in fake_checkpoint_data:
 		start_data["EpisodeDetailUser"]["startScenarioNo"] = fake_checkpoint_data[episode_id]
-
-	apply_checkpoint_resume_state(episode_id, start_data)
 
 	# MasterGroup
 	start_data["MasterGroup"] = fill_episode_master_group()

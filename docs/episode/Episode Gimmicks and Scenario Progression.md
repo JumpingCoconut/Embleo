@@ -43,9 +43,12 @@ The numeric meanings of `Status`, `StartType`, and `Flag` are not defined by the
 
 `SKIP_BATTLES` is a server-side filter, not a general "mark all battle requirements complete" operation. In the current server implementation it omits `Kills` and `EnemyParams` from `ScenarioGroup`, and filters progress types 3 and 14 from the episode `Scenarios` list. Other progress groups and gimmick operations are assembled separately.
 
+`skip_scenario` is a per-episode filter applied only to `EpisodeDetail.Scenarios`. ProgressType 5 represents gimmick scenarios; skipping type 5 for an episode removes all of that episode's type-5 scenario entries, not one selected gate. It does not remove `ScenarioGroup.Gimmicks`. Keep this filter episode-scoped unless suppressing every such scenario globally is intended.
+
 Consequences for debugging:
 
 - An empty `ScenarioGroup.Kills` confirms the kill operations were omitted from that response; it does not set later gimmick operations to their completed state.
+- A type-5 `skip_scenario` entry suppresses the corresponding scenario metadata entries for that episode; it is broad within that episode and is not a per-gate override.
 - `EnemyDetail` can still contain master records for enemies in the episode. Its length alone does not prove that an encounter is currently spawned or active.
 - A later gate or switch operation may still carry a condition or flag even when the kill event is omitted. Any bypass should be explicit, scoped to the relevant episode and operation, and guarded by the server setting that requires it.
 - Preserve the operation's `Status`, `StartType`, progress ID, and other gates' data unless runtime evidence says they must change. Do not modify the client/APK to compensate for a server payload issue.

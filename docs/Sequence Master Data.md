@@ -1,177 +1,235 @@
 # Sequence Master Data
 
-## Scope
+This reference describes `src/data/extract/masterdatadebug/SequenceMasterDataObject.json`: character/enemy combat sequences, not episode progression. Examples/counts are from the current local extraction and can change after setup. Enum meanings are not defined by this JSON.
 
-`src/data/extract/masterdatadebug/SequenceMasterDataObject.json` is a Unity-serialized combat sequence database. It describes character and enemy attack clips, movement, and per-sequence parameter overrides. It does not describe episode progression or map gimmick state; those are separate data paths covered in [Episode Gimmicks and Scenario Progression](episode/Episode%20Gimmicks%20and%20Scenario%20Progression.md).
+## Root Fields
 
-This reference describes the extracted file and the adapter in `src/scripts/adapt/master_data/sequence.py`. Counts below describe the current local extraction and can change when game data is refreshed.
-
-## File Shape
-
-The root object contains Unity metadata (`m_GameObject`, `m_Enabled`, `m_Script`, `m_Name`) and four data members:
-
-| Member | Current shape | Purpose |
+| Field | JSON type | Example |
 | --- | --- | --- |
-| `attackList` | 30 wrappers; 479 settings | Attack definitions, grouped under `AttackSetting` |
-| `moveList` | 29 wrappers; 387 settings | Movement definitions, grouped under `MoveSetting` |
-| `updateParameterList` | 20 wrappers; 876 settings | Per-sequence parameter overrides, grouped under `UpdateParameterSetting` |
-| `noUse` | Integer (`1`) | Present in the source; runtime meaning unknown |
+| `m_GameObject` | object | Unity metadata |
+| `m_Enabled` | integer | `1` |
+| `m_Script` | object | Unity metadata |
+| `m_Name` | string | `SequenceMasterDataObject` |
+| `attackList` | array of wrapper objects | 30 wrappers / 479 settings |
+| `moveList` | array of wrapper objects | 29 wrappers / 387 settings |
+| `updateParameterList` | array of wrapper objects | 20 wrappers / 876 settings |
+| `noUse` | integer | `1`; meaning unknown |
 
-Each wrapper has one category key whose value is an array of settings. Use the full key `(collection, category, id, sequenceName)` to identify a record: the same owner and sequence name can occur in multiple collections because attack, movement, and update-parameter sequences are independent. In this extraction, IDs containing `pl` are treated as character IDs; other IDs are adapted as enemy IDs. This is the adapter's substring-based convention, not a universal type system.
+Each wrapper has one category key (`AttackSetting`, `MoveSetting`, or `UpdateParameterSetting`) whose value is an array. Identify a record by `(collection, category, id, sequenceName)`; an owner/name pair can occur in more than one collection.
 
-## Setting Types
+## Record Fields
 
-### Attack
+The example column uses `ownerID / sequenceName`.
 
-An `AttackSetting` contains:
+| Collection / category | Field | JSON type | Example |
+| --- | --- | --- | --- |
+| AttackSetting | `id` | string | `pl007` |
+| AttackSetting | `sequenceName` | string | `Attack1` |
+| AttackSetting | `baseInfo` | object | `pl007 / Attack1` |
+| AttackSetting | `totalClipCount` | integer | `1` |
+| AttackSetting | `clipCount` | array | `[]` |
+| AttackSetting | `clipDatas` | array of objects | `pl007 / Attack1`, one clip |
+| MoveSetting | `id` | string | `pl007` |
+| MoveSetting | `sequenceName` | string | `Attack1` |
+| MoveSetting | `totalMoveCount` | integer | `2` |
+| MoveSetting | `moveCount` | array of integers | `[0, 1]` |
+| MoveSetting | `direction` | array of vector objects | `[ {"x":0,"y":0,"z":1}, ... ]` |
+| MoveSetting | `speed` | array of numbers | `[1.2, 1.5]` |
+| UpdateParameterSetting | `id` | string | `pl001` |
+| UpdateParameterSetting | `sequenceName` | string | `Charge1` |
+| UpdateParameterSetting | `totalClipCount` | integer | `1` |
+| UpdateParameterSetting | `clipCount` | array | `[]` |
+| UpdateParameterSetting | `clipDatas` | array of objects | `pl001 / Charge1` |
 
-| Field | Meaning |
-| --- | --- |
-| `id` | Character or enemy sequence owner |
-| `sequenceName` | Action/animation sequence key |
-| `baseInfo` | Sequence-wide behavior and targeting modifiers |
-| `totalClipCount` | Declared clip count |
-| `clipCount` | Additional count array; empty in every attack/update setting in the current extraction |
-| `clipDatas` | Per-clip data, including hit settings and action-specific payloads |
+## Attack `baseInfo`
 
-`baseInfo` fields in the current data:
+Types and values below are from `pl007 / Attack1`.
 
-| Field | Interpretation |
-| --- | --- |
-| `ChargeType` | Charge behavior/type enum; values are not defined here |
-| `IsInvincible`, `IsSuperArmor`, `IsArmor`, `IsStrongAttack`, `IsFloating`, `IsForceDamageAction`, `NoSetTarget`, `IsForceMultiTarget`, `KeepExistTarget`, `IsWeakInvincible` | Boolean-like behavior switches stored as integers |
-| `SearchDistance`, `ValidSearchLayerDistance` | Target-search distance controls |
-| `OffsetFront`, `OffsetSide`, `OffsetRear` | Directional targeting offsets |
-| `PriorityType`, `PriorityFlag`, `ServiceFlags` | Priority/service enum or flag values; definitions are not included |
-| `DamageCutRate` | Damage-cut modifier; precise formula is not defined here |
-| `MultiTargetKey`, `BuffKey`, `ActionUniqueKey` | Keys associated with multi-target behavior, buffs, or unique actions |
+| Field | JSON type | Example value |
+| --- | --- | --- |
+| `ChargeType` | integer | `0` |
+| `IsInvincible` | integer | `0` |
+| `IsSuperArmor` | integer | `0` |
+| `IsArmor` | integer | `0` |
+| `IsStrongAttack` | integer | `0` |
+| `IsFloating` | integer | `0` |
+| `IsForceDamageAction` | integer | `0` |
+| `SearchDistance` | number | `15.0` |
+| `ValidSearchLayerDistance` | number | `-1.0` |
+| `OffsetFront` | number | `0.3` |
+| `OffsetSide` | number | `0.5` |
+| `OffsetRear` | number | `0.6` |
+| `PriorityType` | integer | `0` |
+| `PriorityFlag` | integer | `0` |
+| `ServiceFlags` | integer | `0` |
+| `NoSetTarget` | integer | `0` |
+| `DamageCutRate` | number | `0.0` |
+| `MultiTargetKey` | string | `""` |
+| `IsForceMultiTarget` | integer | `0` |
+| `KeepExistTarget` | integer | `0` |
+| `BuffKey` | string | `""` |
+| `ActionUniqueKey` | string | `""` |
+| `IsWeakInvincible` | integer | `0` |
 
-Each `clipDatas` item has a `hitSetting` object and typed payload slots. `hitSetting` contains `HitStopPower`, `HitStopTime`, `HitStopFlag`, `AttackShakePower`, `AttackShakeTime`, and `IsForceAttackShake` (hit pause and shake controls, inferred from the names).
+The `Is...` fields are integer values, not JSON booleans. `...Type`, `...Flag`, and similar integer fields may be enums/bit fields; the numeric meanings need external/runtime evidence.
 
-The action payload slots include `clip_Attack`, `clip_Gun`, `clip_DeathBall`, `clip_Summon`, `clip_Laser`, `clip_ThrowWeapon`, `clip_HomingGun`, `clip_Charging`, `clip_Grenade`, `clip_PutShoot`, `clip_LookGun`, `clip_Plunging`, `clip_MinionOrder`, `clip_MinionAttack`, `clip_MinionDecoyBomb`, `clip_SpecialSkillMagic`, `clip_RegisterBuff`, and `clip_AreaGuard`. Enemy-oriented slots include `enemy_Hit`, `enemy_ColliderHit`, `enemy_Throw`, `enemy_LinkThrow`, `enemy_AdditionalLinkThrow`, `enemy_Intermittent`, `enemy_Laser`, `enemy_Grab`, and `enemy_CatchAttack`; `general` is also present. These are typed slots, not a promise that every slot is active for every clip.
+## Attack `clipDatas`
 
-Common payload fields include:
+Direct fields at `pl007 / Attack1 / clip 0`. Every one of the 594 clip records in this extraction has object values for all 18 `clip_` slots; slot presence alone does not identify an active action.
 
-| Field/group | Interpretation |
-| --- | --- |
-| `ClipIndex` | Clip index within the sequence |
-| `AttackDamageRate`, `DamageRate`, `AddDamageRate` | Damage modifiers for the containing attack/effect |
-| `AttackCenter`, `AttackRadius`, `AttackSize`, `AttackDirection` | Hit-volume position, size, and direction controls |
-| `ReactionType`, `BlowAwayRate`, `StunTime`, `StrongAttack`, `ForceReaction` | Hit reaction and knockback controls; enum values need external definitions |
-| `HitSE`, `HitEffect`, `EffectPath`, `EffectName` | Sound/effect resource references |
-| `MainAttribute`, `CriticalRate`, `BadStatusList`, `BuffKey` | Damage attribute and attached status/buff controls |
-| `IsNoDamage`, `IsNoReactionDamage`, `IsIgnoreGuard`, `IsForceHit` | Boolean-like hit-resolution switches |
-| `Delay`, `Interval`, `IterationNum`, `Duration`, `LifeTime` | Timing/repetition controls in applicable projectile or sustained-effect payloads |
-| `Offset`, `Direction`, `Scale`, `Rotate` and vector-valued members | Spatial values; vectors are objects with `x`, `y`, and `z` components |
+| Field | JSON type | Example owner / sequence |
+| --- | --- | --- |
+| `hitSetting` | object | `pl007 / Attack1` |
+| `clip_AreaGuard` | object | `pl007 / Attack1` |
+| `clip_Attack` | object | `pl007 / Attack1` |
+| `clip_Charging` | object | `pl007 / Attack1` |
+| `clip_DeathBall` | object | `pl007 / Attack1` |
+| `clip_Grenade` | object | `pl007 / Attack1` |
+| `clip_Gun` | object | `pl007 / Attack1` |
+| `clip_HomingGun` | object | `pl007 / Attack1` |
+| `clip_Laser` | object | `pl007 / Attack1` |
+| `clip_LookGun` | object | `pl007 / Attack1` |
+| `clip_MinionAttack` | object | `pl007 / Attack1` |
+| `clip_MinionDecoyBomb` | object | `pl007 / Attack1` |
+| `clip_MinionOrder` | object | `pl007 / Attack1` |
+| `clip_Plunging` | object | `pl007 / Attack1` |
+| `clip_PutShoot` | object | `pl007 / Attack1` |
+| `clip_RegisterBuff` | object | `pl007 / Attack1` |
+| `clip_SpecialSkillMagic` | object | `pl007 / Attack1` |
+| `clip_Summon` | object | `pl007 / Attack1` |
+| `clip_ThrowWeapon` | object | `pl007 / Attack1` |
+| `enemy_Hit` | object | `pl007 / Attack1` |
+| `enemy_ColliderHit` | object | `pl007 / Attack1` |
+| `enemy_Throw` | object | `pl007 / Attack1` |
+| `enemy_LinkThrow` | object | `pl007 / Attack1` |
+| `enemy_AdditionalLinkThrow` | array | `[]` |
+| `enemy_Intermittent` | object | `pl007 / Attack1` |
+| `enemy_Laser` | object | `pl007 / Attack1` |
+| `enemy_Grab` | object | `pl007 / Attack1` |
+| `enemy_CatchAttack` | object | `pl007 / Attack1` |
+| `general` | object | `pl007 / Attack1` |
 
-Payloads contain additional specialized fields. Projectile, laser, and throw slots include trajectory, homing, lifetime, collision, effect, and target-selection controls. Enemy hit slots include damage, hit reaction, guard, and hit-history controls. Interpret a field in the context of its containing payload; the same name in two payloads is not guaranteed to have identical behavior.
+Example populated slots for owner `pl007`, sequence `Attack1`, clip `0`: `clip_AreaGuard`, `clip_Attack`, `clip_Charging`, `clip_DeathBall`, `clip_Grenade`, `clip_Gun`, `clip_HomingGun`, `clip_Laser`, `clip_LookGun`, `clip_MinionDecoyBomb`, `clip_Plunging`, `clip_PutShoot`, `clip_Summon`, and `clip_ThrowWeapon`.
 
-An observed `clip_Attack` payload also includes `AIPlayerIgnoreHitSE`, `AttractDuration`, `DamageReceiverValidTime`, `OptionHitCount`, `EventAttack`, `StopDyingBoss`, `HateOnly`, `ForceCounterAttack`, `IgnoreUnregisterKey`, `LimitPartsHitCount`, `ForceReactionCancel`, `AttackListNoReflesh`, `JudgementPartsName`, `IsSurefire`, and `IsFindCapsuleCollider`. Several are switches or enum-like values whose exact runtime semantics cannot be established from this dump alone. Preserve spelling such as `AttackListNoReflesh`; it is the serialized key.
+### `clip_Attack` example fields
 
-### Movement
+Types and example values are from `pl007 / Attack1 / clip 0 / clip_Attack`.
 
-A `MoveSetting` contains `id`, `sequenceName`, `totalMoveCount`, `moveCount`, `direction`, and `speed`. `direction` is an array of `{x, y, z}` vectors; `speed` is an array of numeric values. `moveCount` holds per-step values. In the current extraction, all three arrays have equal lengths for all 387 settings and correspond by index. Units and value codebooks are not supplied.
+| Field | JSON type | Example value |
+| --- | --- | --- |
+| `ClipIndex` | integer | `0` |
+| `StrongAttack` | integer | `0` |
+| `AttackDamageRate` | number | `0.7` |
+| `ReactionType` | integer | `1` |
+| `BlowAwayRate` | number | `1.0` |
+| `StunTime` | number | `0.0` |
+| `HitSE` | string | `se100069` |
+| `HitEffect` | string | `""` |
+| `AIPlayerIgnoreHitSE` | integer | `0` |
+| `AttractDuration` | number | `0.0` |
+| `DamageReceiverValidTime` | number | `0.0` |
+| `MainAttribute` | integer | `0` |
+| `OptionHitCount` | integer | `0` |
+| `BadStatusList` | array | `[]` |
+| `BuffKey` | string | `SequentialAttack` |
+| `CriticalRate` | number | `-1.0` |
+| `EventAttack` | integer | `0` |
+| `StopDyingBoss` | integer | `0` |
+| `HateOnly` | integer | `0` |
+| `ForceReaction` | integer | `0` |
+| `ForceCounterAttack` | integer | `0` |
+| `IgnoreUnregisterKey` | string | `""` |
+| `LimitPartsHitCount` | integer | `0` |
+| `ForceReactionCancel` | integer | `0` |
+| `AttackCenter` | object | `{x:-0.8,y:0,z:0.66}` |
+| `AttackRadius` | number | `1.0` |
+| `AttackSize` | number | `3.0` |
+| `AttackDirection` | integer | `0` |
+| `AttackListNoReflesh` | integer | `0` |
+| `JudgementPartsName` | integer | `7` |
+| `IsSurefire` | integer | `0` |
+| `IsFindCapsuleCollider` | integer | `0` |
 
-### Update parameters
+`hitSetting` contains `HitStopPower` (number), `HitStopTime` (number), `HitStopFlag` (integer), `AttackShakePower` (number), `AttackShakeTime` (number), and `IsForceAttackShake` (integer). Vectors contain numeric `x`, `y`, and `z` fields.
 
-An `UpdateParameterSetting` contains `id`, `sequenceName`, `totalClipCount`, `clipCount`, and `clipDatas`. Its clip entries use:
+## UpdateParameter Clip Fields
 
-| Field | Purpose |
-| --- | --- |
-| `attackBaseInfo` | Same base parameter set as `AttackSetting.baseInfo` |
-| `clip_SpecialSkillMagic` | Special-skill clip index and buff list |
-| `clip_EnemyReceiveDamage` | Incoming damage modifier and guard switch (`DamageRate`, `IsGuard`) |
+Example owner: `pl001 / Charge1 / clip 0`.
 
-These settings adjust combat behavior; they do not describe episode map gimmicks or chapter progression.
+| Field | JSON type | Child fields |
+| --- | --- | --- |
+| `attackBaseInfo` | object | same fields as Attack `baseInfo` |
+| `clip_SpecialSkillMagic` | object | `ClipIndex` integer; `Buffs` array |
+| `clip_EnemyReceiveDamage` | object | `DamageRate` number; `IsGuard` integer |
 
-## Finding A Record
+## Owner Coverage
 
-The raw file is large (about 82 MB in the current extraction), so avoid printing or searching the whole JSON as text. Load it as JSON and match both owner ID and sequence name. This read-only example prints the matching settings and their category:
+Counts are settings in the current extraction. The 20 owners with UpdateParameter data are exactly `pl001` through `pl020` in this snapshot.
+
+| Owner ID | Attack settings | Move settings | UpdateParameter settings |
+| --- | ---: | ---: | ---: |
+| `em0010_008` | 10 | 13 | 0 |
+| `em0010_009` | 10 | 13 | 0 |
+| `em0010_022` | 16 | 22 | 0 |
+| `em0010_024` | 16 | 22 | 0 |
+| `em0012_011` | 11 | 18 | 0 |
+| `em0019_008` | 17 | 22 | 0 |
+| `em0019_009` | 17 | 22 | 0 |
+| `pl001` | 12 | 13 | 43 |
+| `pl002` | 13 | 5 | 45 |
+| `pl003` | 15 | 12 | 42 |
+| `pl004` | 17 | 10 | 43 |
+| `pl005` | 23 | 16 | 44 |
+| `pl006` | 17 | 13 | 42 |
+| `pl007` | 19 | 12 | 47 |
+| `pl008` | 14 | 13 | 49 |
+| `pl009` | 25 | 13 | 45 |
+| `pl010` | 27 | 9 | 40 |
+| `pl011` | 14 | 12 | 43 |
+| `pl012` | 22 | 12 | 43 |
+| `pl013` | 21 | 17 | 48 |
+| `pl014` | 15 | 13 | 45 |
+| `pl015` | 15 | 14 | 45 |
+| `pl016` | 28 | 11 | 45 |
+| `pl017` | 14 | 13 | 47 |
+| `pl018` | 15 | 11 | 39 |
+| `pl019` | 15 | 13 | 41 |
+| `pl020` | 31 | 15 | 40 |
+| `pl021` | 4 | 1 | 0 |
+| `pl601` | 4 | 7 | 0 |
+| `pl603` | 2 | 0 | 0 |
+
+## Find Filled Clip Values
+
+This prints concrete `clip_` slot values for every attack sequence of one owner. It preserves the sequence name and owner ID so records that reuse a name across collections are not confused.
 
 ```python
 import json
-from pathlib import Path
 
-source = Path("src/data/extract/masterdatadebug/SequenceMasterDataObject.json")
-data = json.loads(source.read_text(encoding="utf-8"))
-owner_id = "pl009"
-sequence_name = "Charge3"
+data = json.load(open("src/data/extract/masterdatadebug/SequenceMasterDataObject.json", encoding="utf-8"))
+owner_id = "pl007"
 
-for collection_name in ("attackList", "moveList", "updateParameterList"):
-	for wrapper in data[collection_name]:
-		category, settings = next(iter(wrapper.items()))
-		for setting in settings:
-			if setting.get("id") == owner_id and setting.get("sequenceName") == sequence_name:
-				print(collection_name, category)
-				print(json.dumps(setting, indent=2))
+for wrapper in data["attackList"]:
+    category, settings = next(iter(wrapper.items()))
+    for setting in settings:
+        if setting["id"] != owner_id:
+            continue
+        for clip_index, clip in enumerate(setting["clipDatas"]):
+            for field, value in clip.items():
+                if field.startswith("clip_"):
+                    print(owner_id, setting["sequenceName"], clip_index, field, value)
 ```
 
-Change `owner_id` and `sequence_name` to the target values. If this prints no match, verify the owner spelling and search all three collections before concluding the sequence is absent.
+## Observed Irregularities
 
-## Reading Values Safely
+| Check | Current observation | Example |
+| --- | --- | --- |
+| `clipCount` | Empty in all 479 Attack and 876 UpdateParameter settings; use `clipDatas` for actual clip records | `pl007 / Attack1` |
+| `totalClipCount` vs. `len(clipDatas)` | Three Attack mismatches | `pl009 / Charge3` 7 vs. 6; `Charge5` 8 vs. 6; `Charge6` 9 vs. 6 |
+| `totalMoveCount` vs. move-array length | Five mismatches; `moveCount`, `direction`, and `speed` lengths still agree | `em0010_008`, `_009`, `_022`, `_024` `Action044` 2 vs. 3; `em0012_011` `Action044` 1 vs. 2 |
 
-- Integer fields named `Is...` are generally boolean-like, but preserve their original values unless the client enum is verified.
-- Integer fields such as `...Type`, `...Flag`, `...Attribute`, and `...Direction` are enums or bit fields until proven otherwise. This JSON does not define their numeric codebooks.
-- Floats are raw game parameters. Units, coordinate spaces, clamping, and multiplier-vs-absolute semantics are not documented here; use the containing field name and verified runtime behavior, not magnitude alone.
-- `totalClipCount`/`totalMoveCount`, `clipCount`/`moveCount`, and the data arrays are separate source fields. Do not derive one from another without checking the sequence's runtime semantics.
-- Empty/default payload slots are structural alternatives. Their presence does not imply that the slot participates in that attack.
-- A `clipDatas` entry can contain every typed payload slot, including default-valued slots. Presence alone does not identify which slot the runtime uses; compare peer records and inspect the relevant consumer before changing one.
+These values are a snapshot, not validation rules. Do not truncate or synthesize data to make counts agree without runtime evidence.
 
-### Known source irregularities
+## Adapter
 
-These are observations from the current local extraction, not invariants for future game data:
-
-- All 479 `attackList` settings and all 876 `updateParameterList` settings have an empty `clipCount` array. Use `clipDatas` to inspect the actual serialized clip entries; do not treat the empty array as proof that there are no clips.
-- Three attack records have `totalClipCount` greater than the number of `clipDatas`: `pl009` / `Charge3` (7 vs. 6), `Charge5` (8 vs. 6), and `Charge6` (9 vs. 6). The reason is unknown; preserve this discrepancy unless runtime evidence explains it.
-- Five movement records have a `totalMoveCount` that differs from the array length: enemy records `em0010_008`, `em0010_009`, `em0010_022`, and `em0010_024` (`Action044`, 2 vs. 3), and `em0012_011` (`Action044`, 1 vs. 2). Their `moveCount`, `direction`, and `speed` arrays still align with one another. Do not "fix" the declared count by truncating data without verifying the consumer.
-
-Recompute these checks after refreshing assets. The upstream dump may change and may correct or add irregularities.
-
-## Adapter Output
-
-`adapt_debug_sequences_master_data` combines the top-level category lists and writes `CharacterSequenceMasterData.json` and `EnemySequenceMasterData.json`. It creates one adapted row per wrapper (normally one owner/category), not one row per `sequenceName`. Each row contains `CharacterId` or `EnemyId`, `Category`, and `Data`. `Data` is a JSON-encoded string containing the original category wrapper and its settings, rather than a normalized nested object. The adapter splits character from enemy records using the `id` substring check and sorts each output by owner ID.
-
-The current extraction produces 65 character rows and 14 enemy rows (79 wrappers total). These are useful smoke-check counts for this asset version only; they are not stable API contracts.
-
-The adapter makes several assumptions that matter when changing its code:
-
-- Every wrapper has at least one category key, and the selected category contains at least one setting. It indexes the first key and the first setting without validation.
-- The first setting's `id` determines the owner for the entire wrapper. All settings inside that wrapper are therefore assumed to belong to the same owner.
-- An `id` containing the substring `pl` is classified as a character; every other ID is classified as an enemy. This is a naming heuristic, not a lookup against character/enemy master data.
-- `Data` preserves the complete wrapper (including all settings), so changing its serialization shape changes the API's nested JSON string even though the outer adapted row is unchanged.
-- The adapter builds output paths by string concatenation. A direct call must pass an `output_folder` ending in a path separator; the normal master-data adapter supplies one.
-
-## Data Flow
-
-The runtime path is:
-
-1. `setup_server.py` extracts the Unity asset into `src/data/extract/masterdatadebug/SequenceMasterDataObject.json`.
-2. `adapt_debug_master_data` calls `adapt_debug_sequences_master_data`.
-3. The adapter writes `src/data/masterdata/CharacterSequenceMasterData.json` and `src/data/masterdata/EnemySequenceMasterData.json`.
-4. `server.py` loads those files into `MasterGroup.characterSequences` and `MasterGroup.enemySequences`.
-5. The episode API returns `MasterGroup` to the existing game client.
-
-All three data paths are under ignored `src/data/`. They are generated local data, not durable source changes. Editing the extracted JSON or adapted JSON can be useful for a local experiment, but the edit will not be part of a commit and can be overwritten by setup. For a persistent fix, change the adapter or another tracked server-side transformation, and test its output against the local extraction.
-
-## Change And Verify Workflow
-
-1. **Identify the layer.** Decide whether the problem is in the extracted value, the adapter's transformation, the adapted output, or the response assembled by `server.py`. A correct raw value with a wrong adapted row points to the adapter; correct adapted files with a wrong response point downstream.
-2. **Find the exact record.** Search by both owner `id` and `sequenceName`, then confirm the category (`AttackSetting`, `MoveSetting`, or `UpdateParameterSetting`). A wrapper can contain many settings; do not edit the first matching owner record without checking the name.
-3. **Find the active nested payload.** Compare the full `clipDatas` entry with nearby clips and the same action on related owners. Preserve the original types, key casing, list structure, and clip ordering. Do not globally replace a repeated field name across payload families.
-4. **Make the durable change.** Do not commit edits under `src/data/`. Put a reproducible transformation in tracked server/adaptation code. If a local raw-data edit is only a probe, record the intended value in the test or code before discarding the generated data.
-5. **Regenerate the adapted files.** From `src/`, use the project environment to run the sequence adapter against the local extraction, writing to `./data/masterdata/`:
-
-   ```python
-   from scripts.adapt.master_data.sequence import adapt_debug_sequences_master_data
-
-   adapt_debug_sequences_master_data(
-	   "./data/extract/masterdatadebug/SequenceMasterDataObject.json",
-	   "./data/masterdata/",
-   )
-   ```
-
-   The output path ends in a separator because the adapter concatenates filenames onto it.
-6. **Validate the output.** Parse both output files as JSON; check the expected owner and category; parse each row's `Data` string with `json.loads`; confirm the target `sequenceName` and nested values survived unchanged or changed as intended. Do not assert snapshot record counts as a permanent contract.
-7. **Validate the serving layer.** Confirm `MasterGroup.characterSequences` or `MasterGroup.enemySequences` contains the row in the API response. If the response is correct but behavior is not, investigate the existing client-consumed schema/semantics or other server data; do not assume changing another similarly named field will help.
-
-For a focused adapter test, call `adapt_debug_sequences_master_data` with a temporary output directory ending in a separator, then inspect the two generated files. Avoid rerunning the full asset download/extraction pipeline for an adapter-only change.
+`src/scripts/adapt/master_data/sequence.py` writes `CharacterSequenceMasterData.json` and `EnemySequenceMasterData.json`. It emits one row per owner/category wrapper with `CharacterId` or `EnemyId`, `Category`, and `Data` (the original wrapper encoded as a JSON string). IDs containing `pl` are classified as characters; other IDs as enemies. Generated files under `src/data/` are ignored; make durable transformations in tracked adapter/server code and validate the decoded `Data` string afterward.
