@@ -2,8 +2,8 @@
     "News": [
         {
             "NewsId": "test",
-            "Title": "Luminaria is Dead",
-            "Content": "News image tests<br>Control: <b>This should be bold</b><br><br>1. HTML image (320 x 180 JPEG):<br><img src=\"https://i.ytimg.com/vi/_cd0hODyGhg/mqdefault.jpg\"><br><br>2. TextMeshPro default sprite by index:<br><sprite=0><br><br>3. TextMeshPro sprite by name (unverified name):<br><sprite name=\"smile\"><br><br>4. Legacy Unity quad (unverified material):<br><quad material=0 size=64 x=0 y=0 width=1 height=1 /><br><br>End of image tests.",
+            "Title": "News sprite index test (0-15)",
+            "Content": "Each number is the sprite index. Screenshot this list to map the visible images.<br><br>0: <sprite=0><br>1: <sprite=1><br>2: <sprite=2><br>3: <sprite=3><br>4: <sprite=4><br>5: <sprite=5><br>6: <sprite=6><br>7: <sprite=7><br>8: <sprite=8><br>9: <sprite=9><br>10: <sprite=10><br>11: <sprite=11><br>12: <sprite=12><br>13: <sprite=13><br>14: <sprite=14><br>15: <sprite=15><br><br>End of sprite index test. Blank or literal tags may indicate missing indices.",
             "StartAt": 1658250000,
             "EndAt": 1784480400,
             "IsNew": false,
