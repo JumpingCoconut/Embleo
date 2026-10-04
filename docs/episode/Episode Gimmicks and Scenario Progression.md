@@ -1,66 +1,186 @@
 # Episode Gimmicks and Scenario Progression
 
-## Scope
+## Episode Response
 
-Episode map gimmicks and scenario-driven changes are assembled through separate data paths. This distinction matters for gates, doors, switches, traps, and other objects that can have both an initial map state and later scripted transitions.
+`src/server.py` assembles `EpisodeDetail` from layout data, adapted scenario
+records, and event-drop data. Episode responses use MessagePack encoding.
 
-The server exposes both paths in `EpisodeDetail`:
-
-| Response field | Primary source | Role |
+| Response field | Source | Contents |
 | --- | --- | --- |
-| `LayoutGroup.Gimmicks` | Per-episode `EpisodeGimmickMasterDataObject.json`, plus applicable stage-option gimmicks | Places map objects and supplies their initial state, type, resource, scenario range, and type-specific parameters |
-| `ScenarioGroup.Gimmicks` | Adapted episode scenario progress records | Applies object operations at specific scenario progress points |
+| `LayoutGroup.Gimmicks` | Per-episode `EpisodeGimmickMasterDataObject.json` and applicable stage-option definitions | Object IDs, resources, initial states, scenario ranges, and type-specific parameters |
+| `LayoutGroup.Breakables` | Per-episode `EpisodeBreakableMasterDataObject.json` | Breakable IDs and resource IDs |
+| `LayoutGroup.Items` | The same breakable source records | Item entries describing breakable resources, scenario ranges, and stack/parallel counts |
+| `Scenarios` | `src/data/masterdata/scenario/<episode_id>.json` | Progress metadata linking scenario numbers and progress types to progress IDs |
+| `ScenarioGroup` | The same adapted scenario records | Progress details grouped by type, including gimmick operations and breakable conditions |
+| `EventDrops` | Per-episode `EpisodeEventDropMasterDataObject.json` | Event-drop IDs and script paths |
 
-These are not duplicate representations. A scenario operation can change or reset an object's layout state later in the episode.
+Layout records describe objects and their initial state. Scenario records describe
+progress conditions and operations associated with scenario progress points.
+An object can have an initial layout state and several subsequent operations.
 
-## Data Path
+## Data Sources and Assembly
 
-1. Setup extracts Unity assets under `src/data/extract/`.
-2. The episode-data adapter converts episode gimmick records to the server's layout representation. It maps the source ID, resource/master ID, action type, starting status, scenario range, and type-specific parameters.
-3. The scenario adapter preserves gimmick operations from scenario progress records. The server groups those records while assembling `EpisodeDetail`.
-4. `server.py` returns both groups with the episode response.
+Setup extracts Unity assets under `src/data/extract/`. The episode layout adapter
+in `src/scripts/adapt/adapt_debug_episode_data.py` reads per-episode files under
+`src/data/extract/masterdatadebug/episode/<episode_id>/` and converts them into
+`LayoutGroup` entries.
 
-Built-in map gimmicks are resolved through the extracted `EpisodeMasterDataObject.json` location IDs and `StageLocationMasterDataObject.json` area records. A stage-option definition matching the area's `_id` takes precedence. If none exists, the adapter uses the final component of the area's `_resourcePath` to find the reused prefab's definition. The emitted `StageMapID` uses that resource name, rather than the location's area alias. For example, Ana-Maria Episode 2's `PLA01E_Area04` loads the `PLA01_Area04` prefab, whose root map object has the base name: its built-in gates receive `StageMapID: PLA01_Area04`. In contrast, `PLA01E_Area01` loads its own named map prefab, which explicitly references the same option-gimmick prefab as the daytime map, so its `StageMapID` remains `PLA01E_Area01`. Matching only area aliases can omit definitions; emitting aliases for reused prefabs can also mismatch their map-object names. The prefab names and option-prefab references are verified asset facts. An explicitly empty variant definition is preserved; duplicate map/gimmick pairs are emitted once.
+`src/scripts/adapt/adapt_debug_scenario.py` produces the adapted scenario records
+under `src/data/masterdata/scenario/`. The server's
+`fill_scenario_list_from_adapted_scenario` builds `Scenarios`, while
+`fill_scenario_group_from_adapted_scenario` groups each record's `Progress`
+payload by its `ProgressType`. These functions retain source record ordering
+within the emitted lists, subject to the filters described below.
 
-The extracted and adapted files under `src/data/` are generated and ignored. For a persistent behavior change, update tracked adapter/server code rather than committing an edit to generated JSON.
+`fill_episode_detail_by_episode_id` combines the layout, scenario metadata,
+scenario groups, and event drops. Extracted and adapted data files under
+`src/data/` are generated and ignored by Git; their transformations are defined
+in the tracked adapter and server code.
 
-## State Model
+## Gimmick Layouts
 
-Layout gimmicks commonly contain an `EpisodeGimmickId`, an `ActionType`, and a `Status` array whose entries associate a state with a `ScenarioNo` range. Type-specific fields (for example, gate auto-close behavior) come from the gimmick's add-parameter data.
+`src/scripts/adapt/episode_data/gimmicks.py` maps each supported gimmick record
+into the following common fields:
 
-Scenario gimmick groups contain a `ProgressGimmickId` and a list of operations. Each operation commonly contains:
-
-| Field | Use in the payload |
+| Layout field | Source |
 | --- | --- |
-| `GimmickId` | Identifies the object being operated on |
-| `StartType` | Source operation parameter; numeric meaning is not documented in this repository |
-| `Status` | Requested state for this operation; do not assume it is an initial layout state |
-| `Flag` | Additional source operation parameter; numeric meaning is not documented in this repository |
+| `EpisodeGimmickId` | `_id` |
+| `ResourceId` | `_masterID` |
+| `ActionType` | `_typeID` |
+| `Status` | One entry containing `_startStatus` and the source scenario range |
+| `Scale` | `_modelScale`, converted to an `[x, y, z]` array |
+| `ScenarioNo` | `[_startScenarioNo, _endScenarioNo]` |
 
-An object can occur in several progress groups, including a reset followed by an open/close transition. Keep progress IDs and operation ordering intact. Do not globally replace every operation for a matching `GimmickId` with its final state; that can erase intended transitions.
+Type-specific fields come from `_addParamJson`. For example, gate types 8 and 10
+emit `Gate.AutoClose` from `_autoClose`; type 3 emits
+`DirectionMove.WarpPointId` from `_warpPointID`. Unsupported action types and
+type 2 are omitted by the adapter.
 
-The numeric meanings of `Status`, `StartType`, and `Flag` are not defined by the extracted scenario JSON or adapter. Verify them against the game data/runtime before assigning semantics. Treat examples and observed values as data, not as an enum specification.
+Built-in stage-option gimmicks are resolved through the episode's location IDs
+in `EpisodeMasterDataObject.json` and the area records in
+`StageLocationMasterDataObject.json`. Area records with `_situation == 0` supply
+the map IDs and resource paths.
 
-## Battle Skipping
+A stage-option definition matching the area's `_id` takes precedence, including
+an explicitly empty definition. Otherwise, the adapter uses the final component
+of the area's `_resourcePath` to find the reused prefab's definition. Emitted
+`StageMapID` values use that resource name. Area aliases and prefab resource
+names can differ. Duplicate area/gimmick ID pairs are emitted once.
 
-`SKIP_BATTLES` is a server-side filter, not a general "mark all battle requirements complete" operation. In the current server implementation it omits `Kills` and `EnemyParams` from `ScenarioGroup`, and filters progress types 3 and 14 from the episode `Scenarios` list. Other progress groups and gimmick operations are assembled separately.
+For example, `PLA01E_Area04` loads the `PLA01_Area04` prefab, whose root map
+object uses the base name, so its built-in gimmicks receive
+`StageMapID: PLA01_Area04`. In contrast, `PLA01E_Area01` loads its own named map
+prefab, which references the daytime map's option-gimmick prefab; its emitted
+`StageMapID` remains `PLA01E_Area01`. Sharing option-gimmick definitions does
+not necessarily mean sharing the root map-object name.
 
-`skip_scenario` is a global progress-type filter applied only to `EpisodeDetail.Scenarios`, currently empty. ProgressType 5 represents gimmick scenarios; adding 5 removes every episode's type-5 entries. It does not remove `ScenarioGroup.Gimmicks`. A future episode-specific workaround should use an episode-scoped filter.
+## Scenario Gimmick Operations
 
-Consequences for debugging:
+Progress type 5 maps to `ScenarioGroup.Gimmicks`.
+`src/scripts/adapt/scenario/gimmick.py` emits a `ProgressGimmickId` and a
+`Gimmicks` list containing the source `GimmickOperations` records without
+transforming their fields.
 
-- An empty `ScenarioGroup.Kills` confirms the kill operations were omitted from that response; it does not set later gimmick operations to their completed state.
-- A type-5 `skip_scenario` entry suppresses the corresponding scenario metadata entries across all episodes; it is not a per-gate override.
-- `EnemyDetail` can still contain master records for enemies in the episode. Its length alone does not prove that an encounter is currently spawned or active.
-- A later gate or switch operation may still carry a condition or flag even when the kill event is omitted. Any bypass should be explicit, scoped to the relevant episode and operation, and guarded by the server setting that requires it.
-- Preserve the operation's `Status`, `StartType`, progress ID, and other gates' data unless runtime evidence says they must change. Do not modify the client/APK to compensate for a server payload issue.
+| Operation field | Representation |
+| --- | --- |
+| `GimmickId` | ID of the referenced object |
+| `StartType` | Source operation parameter |
+| `Status` | State value carried by this operation |
+| `Flag` | Additional source operation parameter |
 
-## Debugging Workflow
+The numeric meanings of `Status`, `StartType`, and `Flag` are not defined by
+these adapters. A scenario operation's `Status` is separate from the initial
+`Status` in the object's layout. The same object ID can occur in several
+progress groups with different operation parameters.
+For example, an object can have a reset operation followed by an open/close
+transition. These are separate progress records rather than one final state
+for the object.
 
-1. Confirm which server revision is running before interpreting gameplay results.
-2. Read the current resume point from `EpisodeDetailUser.startScenarioNo` in the episode-start response. See [Checkpoint and Save System](checkpoint%20and%20save%20system.md) for how this emulator handles checkpoints.
-3. Inspect the same response's `LayoutGroup`, `ScenarioGroup`, and `Scenarios`. Distinguish initial layout state from scenario-time operations and check whether the expected progress point is before or after the saved start point.
-4. Check whether the relevant kill/other progress event is included or filtered. Do not infer this from `EnemyDetail` alone.
-5. Make the narrowest server-side transformation, then assert the assembled `EpisodeDetail` locally. Verify the live API payload after deployment before asking for an APK retest.
+## Breakable Layouts and Conditions
 
-Scenario data is returned as part of a MessagePack API response. When inspecting it directly, decode the response and examine the named fields rather than relying on UI color or text alone; the latter can be useful symptoms but do not identify which payload field controls the behavior.
+The client separates network definitions in `Game.Net` from the runtime data
+model in `App.Data`. Extracted debug master data represents the latter; its
+fields do not map directly to fields of the same-named network type.
+
+`Game.Net.EpisodeBreakable` contains only `EpisodeBreakableId` and `ResourceId`.
+`src/scripts/adapt/episode_data/breakables.py` maps `_id` and `_masterID` to these
+fields in `LayoutGroup.Breakables`.
+
+The same adapter also emits `Game.Net.EpisodeItem` records in `LayoutGroup.Items`:
+
+| Item field | Source or value |
+| --- | --- |
+| `EpisodeItemId` | `_id` |
+| `ItemDropMethod` | `2`, the value of `Game.Net.ItemDropMethod.Breakable` |
+| `DropResourceId` | `_masterID` |
+| `ObjectCount` | `_stackNum` |
+| `ParallelNum` | `_parallelNum` |
+| `EpisodeEvent` | `null` |
+| `ScenarioNo` | `[_startScenarioNo, _endScenarioNo]` |
+
+Source IDs, ordering, ranges, and counts are preserved, including zero counts.
+The client builds item layouts from these item records. Its
+`App.MasterDataManager.StoreEpisodeBreakableMasterData` matches item entries
+with `ItemDropMethod.Breakable` to their layout IDs and passes them to
+`App.Data.EpisodeBreakableInfo.Setup`. That method reads the resource from
+`DropResourceId`, the stack count from `ObjectCount`, and the parallel count
+from `ParallelNum`. It clamps each count to at least one. A layout without a
+matching breakable item or static-item entry is omitted from the client's
+breakable master data.
+
+Progress type 17 maps to `ScenarioGroup.BreakableActions`.
+`src/scripts/adapt/scenario/breakable_action.py` emits the progress `Id` and an
+`Objects` list. Each object contains `Id` from the source `ObjectId` and `Count`
+from the source condition count. Layout counts and condition counts are
+separate fields; the adapter does not derive one from the other.
+
+### Drop Data
+
+`Game.Net.EpisodeDetailUser.Drops` contains `EpisodeDropUser` records with
+`Target`, `TargetId`, and `Items`. `EpisodeDropTarget.Breakable` has value `2`.
+Each `EpisodeDropItemUser` contains `DropId`, `Type`, `ItemId`, and `Count`.
+`EpisodeDropItemType` values are `Unknown = 0`, `Gold = 1`, `Item = 2`,
+`Equipment = 3`, and `Recipe = 4`.
+
+The client passes a drop record with a matching `TargetId` into
+`EpisodeBreakableInfo.Setup`, which converts its items into runtime drop data.
+That setup path accepts a missing drop record; drops are separate from the
+item entry used to construct the breakable.
+
+The source breakable records contain `_dropLotteryID` and `_drops`, but the
+server's breakable adapter does not resolve lotteries or populate user drop
+records. The episode start and continue response templates contain empty
+`drops` lists. `EpisodeDetail.EventDrops` is a separate list of script references:
+its adapter maps `ID` to `Id` and `_targetRequirements` to `ScriptPath`.
+
+## Scenario Filters
+
+The following settings in `src/server.py` control which scenario records are
+included in the response:
+
+| Setting | `Scenarios` effect | `ScenarioGroup` effect |
+| --- | --- | --- |
+| `DISABLE_SCENARIOS` | Leaves the metadata list empty when enabled | Groups are still assembled |
+| `skip_scenario` | Omits the listed progress types across episodes; the list is empty in the source | No effect |
+| `SKIP_BATTLES` | Omits types 3 and 14 | Omits `Kills` and `EnemyParams` |
+| `SKIP_VIDEOS` | Omits type 6 | Omits `Demos` |
+| `SKIP_ROUTE_FORK_MERGE` | Omits types 11 and 12 | Omits `RouteForks` and `RouteMerges` |
+
+Both scenario assembly functions omit progress types greater than 100.
+Checkpoint progress records included in `ScenarioGroup.CheckPoints` have
+`RequestSave` set to `True` by the server.
+
+These filters omit records; they do not change gimmick layout states or rewrite
+remaining gimmick operations. For example, adding type 5 to `skip_scenario`
+omits its metadata from `Scenarios` while leaving `ScenarioGroup.Gimmicks`
+intact. `EnemyDetail` is assembled separately from episode enemy master records
+and does not represent the currently spawned encounter list.
+Omitting a kill event does not mark its requirements complete or resolve
+conditions and flags carried by later gate or switch operations.
+
+## Episode Resume Point
+
+The episode-start response carries the resume scenario number in
+`EpisodeDetailUser.startScenarioNo`. The server fills this value from its saved
+checkpoint when an entry exists for the episode. Checkpoint persistence is
+described in [Checkpoint and Save System](checkpoint%20and%20save%20system.md).
