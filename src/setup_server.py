@@ -10,7 +10,6 @@ from scripts.adapt.adapt_chronology_for_server import generate_character_chronol
 
 from scripts.generate.generate_episode_master_data import generate_episode_master_data
 from scripts.generate.generate_temp_level_curve import generate_character_curve_list, generate_equipment_curve_list
-from scripts.generate.generate_save_file import generateSaveFile
 from scripts.generate.generate_server_news import ask_news_settings, generate_server_news
 
 '''
@@ -233,7 +232,6 @@ extract = True
 adapt_master_data = True
 adapt_scenario = True
 generate = True
-save_data = True
 
 
 def setup(asset_server_link, news_settings=None):
@@ -287,10 +285,6 @@ def setup(asset_server_link, news_settings=None):
 
     if generate:
         generate_master_data()
-
-    if save_data:
-        save_data_path = "./data/user/"
-        generateSaveFile(save_data_path)
 
     generate_server_news(news_settings)
 

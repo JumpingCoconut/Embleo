@@ -6,6 +6,8 @@ When documenting behavior, distinguish verified code/data facts from inferred ga
 
 ## Project And Data
 
+- [Accounts and Saves](Accounts%20and%20Saves.md): client identity, per-player storage, profiles and verification.
+
 - [Sequence Master Data](Sequence%20Master%20Data.md): combat sequence structure, adapter behavior, and safe editing workflow.
 - [Sequence Master Data Further Information](Sequence%20Master%20Data%20Further%20Information.md): adapter details, ownership, and editing workflow.
 - [Errors](Errors.md): known errors and troubleshooting notes.
