@@ -16,6 +16,28 @@ import zlib
 from pathlib import Path
 
 
+SCHEMA_VERSION = 1
+INITIAL_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS accounts (
+        id TEXT PRIMARY KEY, player_code TEXT UNIQUE NOT NULL,
+        created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS tokens (
+        hash TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id)
+    );
+    CREATE TABLE IF NOT EXISTS saves (
+        account_id TEXT NOT NULL REFERENCES accounts(id),
+        name TEXT NOT NULL, value TEXT NOT NULL,
+        PRIMARY KEY (account_id, name)
+    );
+    CREATE TABLE IF NOT EXISTS icons (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id),
+        revision TEXT NOT NULL, png BLOB NOT NULL
+    );
+"""
+
+
 class AccountError(ValueError):
     pass
 
@@ -72,27 +94,26 @@ class AccountStore:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(path, timeout=30)
-        self.connection.execute("PRAGMA foreign_keys=ON")
-        self.connection.executescript("""
-            CREATE TABLE IF NOT EXISTS accounts (
-                id TEXT PRIMARY KEY, player_code TEXT UNIQUE NOT NULL,
-                created_at INTEGER NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS tokens (
-                hash TEXT PRIMARY KEY,
-                account_id TEXT NOT NULL REFERENCES accounts(id)
-            );
-            CREATE TABLE IF NOT EXISTS saves (
-                account_id TEXT NOT NULL REFERENCES accounts(id),
-                name TEXT NOT NULL, value TEXT NOT NULL,
-                PRIMARY KEY (account_id, name)
-            );
-            CREATE TABLE IF NOT EXISTS icons (
-                account_id TEXT PRIMARY KEY REFERENCES accounts(id),
-                revision TEXT NOT NULL, png BLOB NOT NULL
-            );
-        """)
-        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            self.connection.execute("PRAGMA foreign_keys=ON")
+            # Lock initialization so simultaneous server starts migrate only once.
+            self.connection.execute("BEGIN IMMEDIATE")
+            version = self.connection.execute("PRAGMA user_version").fetchone()[0]
+            if version > SCHEMA_VERSION:
+                raise RuntimeError("Account database schema is newer than this server supports.")
+            if version == 0:
+                # Version zero covers both fresh databases and the initial account
+                # release. CREATE IF NOT EXISTS preserves its accounts and saves.
+                for statement in INITIAL_SCHEMA.split(";"):
+                    if statement.strip():
+                        self.connection.execute(statement)
+                self.connection.execute("PRAGMA user_version=1")
+            self.connection.commit()
+            self.connection.execute("BEGIN IMMEDIATE")
+        except Exception:
+            self.connection.rollback()
+            self.connection.close()
+            raise
 
     def authenticate(self, token):
         row = self.connection.execute(

@@ -44,6 +44,62 @@ def seeds():
     }
 
 
+class SchemaTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / "accounts.sqlite3"
+
+    def test_unversioned_account_database_keeps_all_player_data(self):
+        from accounts import INITIAL_SCHEMA
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.executescript(INITIAL_SCHEMA)
+            connection.execute("INSERT INTO accounts VALUES (?, ?, ?)", ("existing", "code", 123))
+            connection.execute("INSERT INTO tokens VALUES (?, ?)", ("hashed-token", "existing"))
+            connection.execute("INSERT INTO saves VALUES (?, ?, ?)",
+                               ("existing", "checkpoint.txt", '{"pl001_ep001":20000}'))
+            connection.execute("INSERT INTO icons VALUES (?, ?, ?)", ("existing", "revision", png()))
+            connection.commit()
+            before = connection.iterdump()
+            original = [line for line in before if line.startswith("INSERT")]
+        store = AccountStore(self.path)
+        self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 1)
+        self.assertEqual(store.read("existing", "checkpoint.txt"), {"pl001_ep001": 20000})
+        store.close()
+        with closing(sqlite3.connect(self.path)) as connection:
+            self.assertEqual([line for line in connection.iterdump() if line.startswith("INSERT")], original)
+
+    def test_newer_schema_is_rejected_without_modifying_database(self):
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.execute("PRAGMA user_version=99")
+            connection.execute("CREATE TABLE future (value TEXT)")
+            connection.commit()
+        with self.assertRaisesRegex(RuntimeError, "newer"):
+            AccountStore(self.path)
+        with closing(sqlite3.connect(self.path)) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 99)
+            self.assertEqual(connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall(), [("future",)])
+
+    def test_failed_initialization_rolls_back_schema_and_version(self):
+        with patch("accounts.INITIAL_SCHEMA", "CREATE TABLE incomplete (id TEXT); invalid SQL;"):
+            with self.assertRaises(sqlite3.OperationalError):
+                AccountStore(self.path)
+        with closing(sqlite3.connect(self.path)) as connection:
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall(), [])
+        store = AccountStore(self.path)
+        store.close()
+
+    def test_concurrent_initialization_and_reopen_are_safe(self):
+        def open_store(_):
+            store = AccountStore(self.path)
+            version = store.connection.execute("PRAGMA user_version").fetchone()[0]
+            store.close()
+            return version
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            self.assertEqual(list(pool.map(open_store, range(3))), [1, 1, 1])
+
+
 class AccountTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

@@ -1,43 +1,86 @@
 # Accounts and Saves
 
-## Identity and client evidence
+## Running locally
 
-The original client's native `Colopl.Net.ApiHandler.SetAccessTokenIfExists` reads the response `Authorization` header. `HandleBeforeSend` sends that token as `Authorization: Bearer <token>`. `App.NetworkManager.HandleResponse` saves it in `Colopl.CryptoPrefs` under `Token`; account detection checks that saved token. The partial C# decompile supplies contracts; native instructions establish these behaviors.
+Accounts are enabled for the whole server. Run the existing setup and server scripts; no separate database installation or opt-in setting is required. Python includes SQLite support.
 
-`POST /api/user/register` creates an account and returns an opaque bearer token in that header. `/api/user/login` resolves the token and returns the saved user and nickname. A nickname, Android ID, advertising ID or registration `Complments` field is not used as a credential. Duplicate nicknames remain separate accounts. Server-generated IDs and player codes are independent of the nickname.
+The default database is `src/data/user/top/accounts.sqlite3`. Set `EMBLEO_ACCOUNT_DB` to use another file location. The database directory must be writable and persistent. Shared legacy JSON saves and `checkpoint.txt` are not imported or used for player state.
 
-Requests marked anonymous by the original API constructors remain available before registration: provision, heartbeat, anonymous action logging, terms URL and anonymous server messages. Player endpoints require a valid token. Original account-transfer and Bandai Namco linking operations are unavailable. There is no password login or custom recovery UI; losing the client token currently loses access to the account.
+Opening the database automatically initializes its tables. Schema version 1 is recorded in SQLite's `PRAGMA user_version`. A database containing the same account tables without a version is assigned version 1 while preserving its records. Initialization runs in one transaction under a write lock. A database with a newer unsupported version is rejected without alteration.
 
-## Storage and profiles
+## Account identity
 
-`src/accounts.py` stores accounts, hashed tokens, JSON-shaped save records and PNG icons in SQLite. Each request commits successful changes together or rolls them back on failure. Existing server save handlers resolve their player records through the authenticated account. Shared master data stays shared.
+`POST /api/user/register` creates an account and returns its bearer token in the response `Authorization` header. The original client's `Colopl.Net.ApiHandler.SetAccessTokenIfExists` reads that header; `HandleBeforeSend` sends the token as `Authorization: Bearer <token>`. `App.NetworkManager.HandleResponse` stores it in `Colopl.CryptoPrefs` under `Token`. Account detection checks the saved token.
 
-The default database is `src/data/user/top/accounts.sqlite3`; `EMBLEO_ACCOUNT_DB` overrides it. Back up the database using SQLite's backup facility or with the server stopped. Keep its directory persistent across rebuilds. Legacy shared JSON files and `checkpoint.txt` are neither imported nor used for player saves. New accounts receive generated defaults from the existing game-data generators. Setup no longer generates a shared player save.
+`/api/user/login` resolves the bearer token and returns the saved user and nickname. Nicknames, Android IDs, advertising IDs and the registration `Complments` field are not credentials. Duplicate nicknames belong to distinct accounts. Account IDs and player codes are generated independently of the nickname. Only token hashes are stored on the server.
 
-Saved state includes the user identity/name, user parameters, characters/loadouts, equipment, items, episode progress, checkpoints, balances, presents and player settings. This preserves the existing gameplay handlers' behavior; it does not implement missing rewards or progression rules.
+Anonymous startup routes remain accessible before registration: provision, heartbeat, anonymous action logging, terms URL and anonymous server messages. Player-data endpoints require a valid token.
 
-The original `UserChangeViewParamRequest` contains `Word`, `FavoriteChrId` and `EmblemId`. `/api/user/change-view-param` persists those fields and returns the existing response shape. The selected character portrait comes from client assets. The wire field is `FavoriteChrId`, rather than the old seed's `FavouriteChrId` spelling.
+There is no implemented account-recovery flow. Clearing app data or losing the client token removes access to that account. Official account linking and transfer endpoints are unavailable; the server does not integrate with Bandai Namco accounts.
 
-The client also has a separate rendered-icon path: `CharacterIconCapture` encodes a PNG as base64, and `/api/character-icon/upload-icon` accepts its `Icon` string. The server validates and stores the PNG, returning `IconUrl`. Other-user views expose that URL, or null so the client uses its character portrait fallback. URLs include an image revision to avoid stale cached images. Dimensions come from the uploaded PNG rather than an assumed 128-by-128 size. Android rendering still requires an in-game check.
+## Save storage
 
-## Scope and remaining work
+`src/accounts.py` stores account identities, hashed tokens, JSON-shaped save records and PNG icons in SQLite. Records are keyed by account ID. Existing gameplay handlers access player records through the authenticated request; shared master data remains independent of accounts.
 
-| Feature | Current state | Next step |
-| --- | --- | --- |
-| Identity, profiles, saves | Persistent per account | Verify client registration/token restoration and gameplay |
-| Character portrait selection | Favorite character saved | Verify visible portrait after restart |
-| Uploaded rendered icon | Stored and served as PNG | Verify client display and upload flow |
-| Other-user lookup | Real account ID or player code | Connect social flows as implemented |
-| Chat, episode comments/likes, guilds/messages | Existing fixtures or incomplete handlers | Implement account-owned records using original contracts |
-| Emoji/stamps | Existing client resources/contracts | Persist selections/messages with social features |
-| Raids | Placeholder | Leave dummy for now |
-| Purchases | Disabled; no purchase gifts created | No payment integration planned |
-| Official account linking/transfer | Unavailable | No official service integration planned |
+A request owns a transaction. Successful requests commit their changes together; failed requests roll them back. Write transactions are serialized to prevent concurrent read-modify-write requests from losing updates.
 
-The old administrator JSON save editor does not edit this database. It needs a separate account-aware update before it can manage these saves.
+The saved records include:
 
-## Verification
+- User identity and nickname.
+- `UserParameter`: mission rank/EXP, currencies, profile comment, favorite character, emblem and other existing parameter fields.
+- Characters and loadouts, equipment and items.
+- Episode state and checkpoint positions.
+- Balances, presents and player settings.
 
-Run `python -m unittest discover -s tests -p test_accounts.py`. Tests cover separate accounts, token restoration, profile/loadout persistence, checkpoint transactions, PNG round trips and disabled purchases.
+New accounts receive defaults from the existing game-data generators. Persisting these records does not implement missing reward, progression or social rules.
 
-For an Android playtest, register once, change your nickname and favorite character, restart the game, and verify both remain. Reach a checkpoint, exit and restart, then continue the episode. Use a second emulator/device with separate app data to register another account and verify it starts with independent defaults. Restart the server and repeat login/continue for both. Do not clear the first device's app data: its stored token is the current credential.
+## Player-data endpoints
+
+| Endpoint group | Account-owned data |
+| --- | --- |
+| User registration, login, info and top | Identity, nickname and the account's saved records |
+| Name and view-parameter changes | `User.json` and `UserParameter.json` |
+| Character updates | Existing character loadouts; level and EXP remain server-owned |
+| Episode list and chronology | `UserEpisode.json` combined with shared master data |
+| Episode start and continue | The account's checkpoint position |
+| Episode checkpoint and reset | Checkpoint positions and episode status |
+| Episode retire and reward-result payloads | Current account parameters, characters, items, equipment and balances |
+| Present list, history and receive | The account's presents; reward application remains incomplete |
+| Billing list | Account settings and balances; purchasable products are disabled |
+| Other-user info | Explicitly requested account profiles, looked up by ID or player code |
+| Rendered-icon upload | The authenticated account's icon |
+
+Authentication does not make fixture-backed routes fully functional. Cooking-market purchases, gacha rewards, calendar rewards, missions and social endpoints still contain incomplete gameplay behavior. They must not be treated as a complete economy or progression implementation.
+
+## Profiles and images
+
+`/api/user/change-name` saves the nickname. `/api/user/change-view-param` saves `Word`, `FavoriteChrId` and `EmblemId` in `UserParameter`, using the original request/response contract. Fixed character portraits are client assets; favorite-character selection is represented by `FavoriteChrId`.
+
+The client also has a rendered-icon path. `CharacterIconCapture` encodes a PNG as base64 and `/api/character-icon/upload-icon` accepts the `Icon` field. The server validates the image, stores its original bytes and returns an absolute `IconUrl`. Image dimensions are read from the PNG, with a maximum of 1024 by 1024 pixels. Eight-bit RGB/RGBA, noninterlaced PNGs are accepted.
+
+`/account-icons/<account_id>/<revision>.png` serves the stored image. Its revision is derived from the image content. Other-user views expose `IconUrl`, or null so the client uses its character-portrait fallback. Other-user lookup accepts an account ID or player code.
+
+## Multiple server instances and backups
+
+All instances that should share accounts must be configured to open the same persistent database. Sharing is a hosting configuration, not a requirement for local installations. The server has no Main/Dev-specific storage logic and does not copy or synchronize separate databases.
+
+SQLite file sharing requires a single host with working filesystem locks. Keep the persistent directory outside disposable container filesystems and mount it into each instance. Every instance must support the database schema. This implementation does not support sharing SQLite through network storage across multiple hosts.
+
+Back up the database with SQLite's backup facility or while every server using it is stopped. Replacing or restoring the file requires stopping all users of the database. A container rollback must retain the current database and use a compatible server version; restoring an older database also restores older player progress.
+
+## Current feature scope
+
+| Feature | Implementation |
+| --- | --- |
+| Identity, profiles and saves | Persistent per account |
+| Favorite-character selection | Saved in `UserParameter`; fixed portraits supplied by the client |
+| Rendered icons | Validated PNG upload, storage and serving |
+| Badge unlocks | Fixture-provided entries; no per-account badge ownership or unlock implementation |
+| Other-user lookup | Account ID or player code |
+| Chat, episode comments/likes, guilds and guild messages | Fixtures or incomplete handlers; no complete persistent social system |
+| Emoji/stamps | Existing client resources/contracts; no complete persistent messaging system |
+| Raids | Placeholder |
+| Purchases | Disabled; purchase attempts do not create gifts |
+| Official linking and account recovery | Unavailable |
+
+An administrator editor must select an account and edit its database save records. Editing shared JSON files does not affect account saves. News is independent of the account database.
