@@ -16,7 +16,7 @@ import zlib
 from pathlib import Path
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 INITIAL_SCHEMA = """
     CREATE TABLE IF NOT EXISTS accounts (
         id TEXT PRIMARY KEY, player_code TEXT UNIQUE NOT NULL,
@@ -35,6 +35,40 @@ INITIAL_SCHEMA = """
         account_id TEXT PRIMARY KEY REFERENCES accounts(id),
         revision TEXT NOT NULL, png BLOB NOT NULL
     );
+"""
+
+ACTIVITY_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS account_activity (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id),
+        last_action_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS login_history (
+        id INTEGER PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id),
+        logged_in_at INTEGER NOT NULL,
+        last_action_at INTEGER NOT NULL,
+        logged_out_at INTEGER,
+        source TEXT NOT NULL CHECK (source IN ('register', 'login'))
+    );
+    CREATE INDEX IF NOT EXISTS login_history_account
+        ON login_history(account_id, id DESC);
+"""
+
+SOCIAL_SCHEMA = """
+    CREATE TABLE IF NOT EXISTS follows (
+        follower_id TEXT NOT NULL REFERENCES accounts(id),
+        followed_id TEXT NOT NULL REFERENCES accounts(id),
+        PRIMARY KEY (follower_id, followed_id),
+        CHECK (follower_id != followed_id)
+    );
+    CREATE INDEX IF NOT EXISTS follows_target ON follows(followed_id, follower_id);
+    CREATE TABLE IF NOT EXISTS blocks (
+        blocker_id TEXT NOT NULL REFERENCES accounts(id),
+        blocked_id TEXT NOT NULL REFERENCES accounts(id),
+        PRIMARY KEY (blocker_id, blocked_id),
+        CHECK (blocker_id != blocked_id)
+    );
+    CREATE INDEX IF NOT EXISTS blocks_target ON blocks(blocked_id, blocker_id);
 """
 
 
@@ -108,6 +142,16 @@ class AccountStore:
                     if statement.strip():
                         self.connection.execute(statement)
                 self.connection.execute("PRAGMA user_version=1")
+            if version < 2:
+                for statement in ACTIVITY_SCHEMA.split(";"):
+                    if statement.strip():
+                        self.connection.execute(statement)
+                self.connection.execute("PRAGMA user_version=2")
+            if version < 3:
+                for statement in SOCIAL_SCHEMA.split(";"):
+                    if statement.strip():
+                        self.connection.execute(statement)
+                self.connection.execute("PRAGMA user_version=3")
             self.connection.commit()
             self.connection.execute("BEGIN IMMEDIATE")
         except Exception:
@@ -120,6 +164,80 @@ class AccountStore:
             "SELECT account_id FROM tokens WHERE hash=?", (token_hash(token),)
         ).fetchone()
         return row[0] if row else None
+
+    def record_login(self, account_id, now, source="login"):
+        self.connection.execute("""INSERT INTO login_history
+            (account_id, logged_in_at, last_action_at, source)
+            VALUES (?, ?, ?, ?)""", (account_id, now, now, source))
+
+    def record_activity(self, account_id, now):
+        self.connection.execute("""INSERT INTO account_activity VALUES (?, ?)
+            ON CONFLICT(account_id) DO UPDATE SET
+                last_action_at=MAX(last_action_at, excluded.last_action_at)""",
+            (account_id, now))
+        self.connection.execute("""UPDATE login_history
+            SET last_action_at=MAX(last_action_at, ?)
+            WHERE id=(SELECT id FROM login_history WHERE account_id=?
+                      ORDER BY id DESC LIMIT 1) AND logged_out_at IS NULL""",
+            (now, account_id))
+
+    def presence(self, account_id, now, timeout):
+        row = self.connection.execute("""SELECT last_action_at
+            FROM account_activity WHERE account_id=?""", (account_id,)).fetchone()
+        login = self.connection.execute("""SELECT logged_in_at FROM login_history
+            WHERE account_id=? ORDER BY id DESC LIMIT 1""", (account_id,)).fetchone()
+        return bool(row and 0 <= now - row[0] < timeout), login[0] if login else 0
+
+    def relationship_counts(self, account_id):
+        row = self.connection.execute("""SELECT
+            (SELECT COUNT(*) FROM follows WHERE follower_id=?),
+            (SELECT COUNT(*) FROM follows WHERE followed_id=?),
+            (SELECT COUNT(*) FROM blocks WHERE blocker_id=?)""",
+            (account_id, account_id, account_id)).fetchone()
+        return dict(zip(("FollowCount", "FollowerCount", "BlockCount"), row))
+
+    def relationship_flags(self, viewer_id, target_id):
+        row = self.connection.execute("""SELECT
+            EXISTS(SELECT 1 FROM follows WHERE follower_id=? AND followed_id=?),
+            EXISTS(SELECT 1 FROM follows WHERE follower_id=? AND followed_id=?),
+            EXISTS(SELECT 1 FROM blocks WHERE blocker_id=? AND blocked_id=?)""",
+            (viewer_id, target_id, target_id, viewer_id, viewer_id, target_id)).fetchone()
+        return dict(zip(("IsFollow", "IsFollower", "IsBlock"), map(bool, row)))
+
+    def relationship_lists(self, account_id):
+        queries = {
+            "FollowUsers": "SELECT followed_id FROM follows WHERE follower_id=? ORDER BY followed_id",
+            "FollowerUsers": "SELECT follower_id FROM follows WHERE followed_id=? ORDER BY follower_id",
+            "BlockUsers": "SELECT blocked_id FROM blocks WHERE blocker_id=? ORDER BY blocked_id",
+        }
+        return {key: [row[0] for row in self.connection.execute(query, (account_id,))]
+                for key, query in queries.items()}
+
+    def change_relationship(self, account_id, target_id, action):
+        if account_id == target_id:
+            raise AccountError("Cannot follow or block yourself.")
+        pair = (account_id, target_id)
+        reverse = (target_id, account_id)
+        if action == "follow":
+            blocked = self.connection.execute("""SELECT 1 FROM blocks
+                WHERE (blocker_id=? AND blocked_id=?) OR (blocker_id=? AND blocked_id=?)""",
+                pair + reverse).fetchone()
+            if blocked:
+                raise AccountError("Cannot follow a blocked player.")
+            self.connection.execute("INSERT OR IGNORE INTO follows VALUES (?, ?)", pair)
+        elif action == "follow-release":
+            self.connection.execute("DELETE FROM follows WHERE follower_id=? AND followed_id=?", pair)
+        elif action == "follower-release":
+            self.connection.execute("DELETE FROM follows WHERE follower_id=? AND followed_id=?", reverse)
+        elif action == "block":
+            self.connection.execute("INSERT OR IGNORE INTO blocks VALUES (?, ?)", pair)
+            self.connection.execute("""DELETE FROM follows
+                WHERE (follower_id=? AND followed_id=?) OR (follower_id=? AND followed_id=?)""",
+                pair + reverse)
+        elif action == "block-release":
+            self.connection.execute("DELETE FROM blocks WHERE blocker_id=? AND blocked_id=?", pair)
+        else:
+            raise AccountError("Unknown relationship action.")
 
     def create(self, name, saves):
         if not isinstance(name, str) or not 2 <= len(name.strip()) <= 64:
