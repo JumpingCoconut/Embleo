@@ -141,6 +141,12 @@ Non-character badges and unknown factions use the client fallback, Monster/Other
 
 `/api/user/change-name` saves the nickname. `/api/user/change-view-param` saves `Word`, `FavoriteChrId` and `EmblemId` in `UserParameter`, using the client request/response contract. Fixed character portraits are client assets; favorite-character selection is represented by `FavoriteChrId`.
 
+### Other-player profile requests
+
+`/api/user/other-user-info` accepts a `userIdInfo` list containing at most 32 strings. Each string is an account ID/player code, optionally followed by a comma and character ID: `"<account_id>,pl002"`. The client uses this combined form when opening another player's character/profile dialog.
+
+The response contains `UserViews`. A plain identifier selects the player's favorite character; a combined identifier selects the requested saved character without changing the favorite. `CharacterId` and `UserCharacter.CharacterId` refer to the same character. Unknown accounts are omitted; malformed identifiers and unknown characters are rejected. Treating a combined identifier as a plain account ID would return an empty list for an existing player.
+
 ### Rendered icons
 
 The client can upload a rendered icon. `CharacterIconCapture` encodes a PNG as base64 and `/api/character-icon/upload-icon` accepts the `Icon` field. The server validates the image, stores its original bytes and returns an absolute `IconUrl`. Image dimensions are read from the PNG, with a maximum of 1024 by 1024 pixels. Eight-bit RGB/RGBA, noninterlaced PNGs are accepted.

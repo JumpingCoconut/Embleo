@@ -2001,25 +2001,32 @@ def other_user_info():
 	for identifier in identifiers:
 		if not isinstance(identifier, str):
 			raise AccountError("Invalid player identifier.")
-		account_id = g.account_store.find_account(identifier)
+		# RequestOtherPlayer(userId, characterId) formats "{0},{1}".
+		parts = identifier.split(",")
+		if len(parts) > 2 or not parts[0] or (len(parts) == 2 and not parts[1]):
+			raise AccountError("Invalid player identifier.")
+		account_id = g.account_store.find_account(parts[0])
 		if account_id is None:
 			continue
-		views.append(user_view(account_id))
+		views.append(user_view(account_id, parts[1] if len(parts) == 2 else None))
 	return pack_json_response({"UserViews": views})
 
 
-def user_view(account_id):
+def user_view(account_id, character_id=None):
 	user = g.account_store.read(account_id, "User.json")
 	parameter = g.account_store.read(account_id, "UserParameter.json")
-	character_id = parameter.get("FavoriteChrId", "pl001")
+	character_id = character_id if character_id is not None else parameter.get("FavoriteChrId", "pl001")
 	characters = g.account_store.read(account_id, "UserCharacter.json")
+	character = next((c for c in characters if c["CharacterId"] == character_id), None)
+	if character is None:
+		raise AccountError("Unknown profile character.")
 	revision = g.account_store.icon_revision(account_id)
 	is_online, last_login = g.account_store.presence(
 		account_id, int(time.time()), app.config["ONLINE_TIMEOUT_SECONDS"])
 	noble_start, noble_end = noble_dates()
 	return {"UserId": user["id"], "Name": user["name"],
 		"CharacterId": character_id,
-		"UserCharacter": next((c for c in characters if c["CharacterId"] == character_id), None),
+		"UserCharacter": character,
 		"UserEquipment": [], "UserItem": [], "EmblemId": parameter.get("EmblemId", ""),
 		"GuildName": "", "Comment": parameter.get("Word", ""),
 		"IsLogin": account_id == g.account_id or is_online, "LastLoginAt": utc_date(last_login),
