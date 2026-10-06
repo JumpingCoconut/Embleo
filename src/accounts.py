@@ -301,6 +301,20 @@ class AccountStore:
             (identifier, identifier)).fetchone()
         return row[0] if row else None
 
+    def search_accounts(self, query):
+        """Resolve an exact ID/code, otherwise find up to 32 matching names."""
+        account_id = self.find_account(query)
+        if account_id is not None:
+            return [account_id]
+        query = query.casefold()
+        matches = []
+        for account_id, value in self.connection.execute(
+                "SELECT account_id, value FROM saves WHERE name='User.json' ORDER BY account_id"):
+            name = json.loads(value).get("name", "")
+            if isinstance(name, str) and query in name.casefold():
+                matches.append((name.casefold() != query, name.casefold(), account_id))
+        return [match[2] for match in sorted(matches)[:32]]
+
     def close(self):
         self.connection.close()
 
