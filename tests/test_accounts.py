@@ -15,7 +15,7 @@ import msgpack
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import server
-from accounts import AccountStore, default_saves, decode_icon, AccountError
+from accounts import AccountStore, default_saves, decode_icon, AccountError, SCHEMA_VERSION
 
 
 def png(width=128, height=128, color=0):
@@ -63,7 +63,7 @@ class SchemaTests(unittest.TestCase):
             before = connection.iterdump()
             original = [line for line in before if line.startswith("INSERT")]
         store = AccountStore(self.path)
-        self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], 1)
+        self.assertEqual(store.connection.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
         self.assertEqual(store.read("existing", "checkpoint.txt"), {"pl001_ep001": 20000})
         store.close()
         with closing(sqlite3.connect(self.path)) as connection:
@@ -97,7 +97,21 @@ class SchemaTests(unittest.TestCase):
             store.close()
             return version
         with ThreadPoolExecutor(max_workers=3) as pool:
-            self.assertEqual(list(pool.map(open_store, range(3))), [1, 1, 1])
+            self.assertEqual(list(pool.map(open_store, range(3))), [SCHEMA_VERSION] * 3)
+
+    def test_version_one_upgrade_preserves_saves_without_inventing_logins(self):
+        from accounts import INITIAL_SCHEMA
+        with closing(sqlite3.connect(self.path)) as connection:
+            connection.executescript(INITIAL_SCHEMA)
+            connection.execute("INSERT INTO accounts VALUES ('existing', 'code', 123)")
+            connection.execute("INSERT INTO saves VALUES ('existing', 'custom.json', '{\"x\":42}')")
+            connection.execute("PRAGMA user_version=1")
+            connection.commit()
+        store = AccountStore(self.path)
+        self.addCleanup(store.close)
+        self.assertEqual(store.read('existing', 'custom.json'), {'x': 42})
+        self.assertEqual(store.presence('existing', 1000, 300), (False, 0))
+        self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM login_history').fetchone()[0], 0)
 
 
 class AccountTests(unittest.TestCase):
@@ -148,6 +162,64 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(login["loginInfo"]["name"], "Alice")
         info = self.unpack(self.post("/api/user/info", token=bob_token))
         self.assertEqual(info["user"], bob)
+
+    def test_login_history_and_activity_based_presence(self):
+        with patch('server.time.time', return_value=1000):
+            alice, token = self.register()
+            bob, bob_token = self.register('Bob')
+        with patch('server.time.time', return_value=1100):
+            self.unpack(self.post('/api/user/login', token=token))
+        with patch('server.time.time', return_value=1200):
+            self.unpack(self.post('/api/user/info', token=token))
+        def view(now):
+            with patch('server.time.time', return_value=now):
+                return self.unpack(self.post('/api/user/other-user-info',
+                    {'userIdInfo': [alice['id']]}, token=bob_token))['UserViews'][0]
+        self.assertTrue(view(1499)['IsLogin'])
+        self.assertFalse(view(1500)['IsLogin'])
+        self.assertEqual(view(1500)['LastLoginAt'], '1970-01-01T00:18:20Z')
+        with patch('server.time.time', return_value=1600):
+            self.unpack(self.post('/api/user/info', token=token))
+        self.assertTrue(view(1601)['IsLogin'])
+        with closing(sqlite3.connect(self.db)) as connection:
+            history = connection.execute('''SELECT logged_in_at, last_action_at,
+                logged_out_at, source FROM login_history WHERE account_id=? ORDER BY id''',
+                (alice['id'],)).fetchall()
+        self.assertEqual(history, [(1000, 1000, None, 'register'), (1100, 1600, None, 'login')])
+
+    def test_failed_requests_and_anonymous_heartbeat_do_not_refresh_presence(self):
+        with patch('server.time.time', return_value=1000):
+            alice, token = self.register()
+        with patch('server.time.time', return_value=1200):
+            self.assertEqual(self.post('/api/user/change-name', {'name': ''}, token=token).status_code, 400)
+            self.assertEqual(self.post('/api/game/heartbeat', token=token).status_code, 200)
+            self.assertEqual(self.post('/api/user/login', token='Bearer invalid').status_code, 401)
+        with closing(sqlite3.connect(self.db)) as connection:
+            self.assertEqual(connection.execute('SELECT last_action_at FROM account_activity WHERE account_id=?',
+                (alice['id'],)).fetchone()[0], 1000)
+            self.assertEqual(connection.execute('SELECT COUNT(*) FROM login_history').fetchone()[0], 1)
+
+    def test_noble_policy_applies_to_existing_saves_and_profiles(self):
+        alice, token = self.register()
+        store = AccountStore(self.db)
+        try:
+            parameter = store.read(alice['id'], 'UserParameter.json')
+            parameter.update(NobleStartAtUnix=0, NobleEndAtUnix=0)
+            store.write(alice['id'], 'UserParameter.json', parameter)
+            store.connection.commit()
+        finally:
+            store.close()
+        with server.app.test_request_context('/api/user/top'):
+            server.g.account_id = alice['id']
+            server.g.account_store = AccountStore(self.db)
+            parameter = server.load_json('./data/user/UserParameter.json')
+            self.assertLess(parameter['NobleStartAtUnix'], server.time.time())
+            self.assertGreater(parameter['NobleEndAtUnix'], server.time.time())
+        view = self.unpack(self.post('/api/user/other-user-info',
+            {'userIdInfo': [alice['id']]}, token=token))['UserViews'][0]
+        self.assertLess(view['NobleStartAt'], server.utc_date(server.time.time()))
+        self.assertGreater(view['NobleEndAt'], server.utc_date(server.time.time()))
+        self.assertEqual(self.saved(alice, 'UserParameter.json')['NobleEndAtUnix'], 0)
 
     def test_prelogin_routes_do_not_require_an_account(self):
         for path in ("/api/game/heartbeat", "/api/server-message/anonymous-list",

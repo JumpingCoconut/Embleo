@@ -6,7 +6,7 @@ Accounts are enabled for the whole server. Run the existing setup and server scr
 
 The default database is `src/data/user/top/accounts.sqlite3`. Set `EMBLEO_ACCOUNT_DB` to use another file location. The database directory must be writable and persistent. Shared legacy JSON saves and `checkpoint.txt` are not imported or used for player state.
 
-Opening the database automatically initializes its tables. Schema version 1 is recorded in SQLite's `PRAGMA user_version`. A database containing the same account tables without a version is assigned version 1 while preserving its records. Initialization runs in one transaction under a write lock. A database with a newer unsupported version is rejected without alteration.
+Opening the database automatically initializes its tables. Schema version 3 is recorded in SQLite's `PRAGMA user_version`. Unversioned, version 1 and version 2 databases are upgraded while preserving accounts, saves, tokens, icons and existing activity/history. Version 2 adds login history and last activity; version 3 adds directed follows and blocks. Migration does not invent historical logins or relationships from old counters. Initialization runs in one transaction under a write lock. A database with a newer unsupported version is rejected without alteration. Older servers cannot open version 3 databases.
 
 ## Account identity
 
@@ -48,11 +48,42 @@ New accounts receive defaults from the existing game-data generators. Persisting
 | Present list, history and receive | The account's presents; reward application remains incomplete |
 | Billing list | Account settings and balances; purchasable products are disabled |
 | Other-user info | Explicitly requested account profiles, looked up by ID or player code |
+| Friend follow, unfollow, follower removal, block/unblock, list and search | Persistent relationships; counts and viewer-relative profile flags derived from SQLite |
 | Rendered-icon upload | The authenticated account's icon |
 
 Authentication does not make fixture-backed routes fully functional. Cooking-market purchases, gacha rewards, calendar rewards, missions and social endpoints still contain incomplete gameplay behavior. They must not be treated as a complete economy or progression implementation.
 
 ## Profiles and images
+
+### Follows and blocks
+
+`src/accounts.py` stores directed account pairs in `follows` and `blocks`, with foreign keys, uniqueness constraints and indexes for both directions. `FollowCount`, `FollowerCount` and `BlockCount` are calculated whenever account parameters are loaded for game responses, so stale saved counters do not determine relationships. `IsFollow`, `IsFollower` and `IsBlock` are calculated relative to the authenticated viewer in every profile response.
+
+The existing client API contracts are implemented as follows:
+
+| Endpoint | Behavior |
+| --- | --- |
+| `/api/friend/follow` | Add outgoing follows; duplicate follows are harmless |
+| `/api/friend/follow-release` | Remove outgoing follows |
+| `/api/friend/follower-release` | Remove incoming follows without removing the caller's outgoing follows |
+| `/api/friend/block` | Add an outgoing block and remove follows in both directions |
+| `/api/friend/block-release` | Remove only the caller's block; previous follows are not restored |
+| `/api/friend/list` | Return `FollowUsers`, `FollowerUsers` and `BlockUsers` as current profile views |
+| `/api/friend/search` | Exact lookup by account ID or player code; return `User` and `Users`, or null/empty when absent |
+
+Mutations accept `targetUserIds`; search accepts `searchId`. Mutations are authenticated POST requests with at most 32 targets per batch. Missing players, malformed targets and self-targeting are rejected; duplicate targets are processed once. A failure rolls back the whole batch. Follow requests are rejected if either account has blocked the other. A player cannot remove another player's block. These block semantics are emulator policy, not a claim about recovered official rules. No total follow cap or mission rewards are implemented. Profile equipment/items and incomplete messaging remain unchanged; blocking currently enforces follow relationships rather than a full social system.
+
+Verify with `python -m unittest discover -s tests -p test_social.py`, alongside `test_accounts.py` for existing save and authentication behavior.
+
+Successful registration and login requests append account-owned records to SQLite's `login_history` table. Registration entries have `source=register`; subsequent logins have `source=login`. Each record contains `logged_in_at`, the latest `last_action_at` observed after that login, and a nullable `logged_out_at`. Authenticated registration retries do not append login events. Failed requests do not append events or advance activity. These records contain account IDs, not tokens, and are not exposed through public game APIs.
+
+Every successful authenticated API request updates `account_activity.last_action_at`. Other-user `IsLogin` means activity occurred within `ONLINE_TIMEOUT_SECONDS` (300 seconds by default), or the profile belongs to the current requester. `LastLoginAt` comes from the most recent recorded login/registration. Old accounts without a recorded login retain the epoch fallback until their next login.
+
+There is no recovered logout API, so `logged_out_at` remains null. Inactivity is an approximation of going offline, not an observed logout. A player who remains in offline gameplay or an idle screen may appear offline. The general `/api/game/heartbeat` has no account identity in its request contract and disables client authorization; anonymous/public requests do not refresh account activity. The recovered profile UI directly reads `UserView.IsLogin`; it does not calculate online status from `LastLoginAt`.
+
+Noble membership is enabled for every account in responses. `UserParameter` receives a start in 2000 and an end ten years beyond the current response time; profile views receive the matching dates. The end moves forward on subsequent requests, so there is no purchase or renewal requirement. Existing saves are not rewritten to grant membership. This supplies membership dates, not otherwise missing premium gameplay rules.
+
+`/api/user/top` derives available emblems from the installed `data/extract/manifest.json` using `profiles.py`. Every matching emblem asset is provided as usable, with its asset resource path and category 2 (Wappen). Native `updateUserStampBadge` routes category 2 into the emblem list; category 0 from the old fixture is not a valid emblem category. Sorting and grant metadata use emulator defaults because official badge master metadata is not installed. Unrelated stamps and deck data are preserved. If the manifest is absent or has no matching assets, the existing fixture remains the fallback. The asset inventory stays local; no extracted asset list is checked into source.
 
 `/api/user/change-name` saves the nickname. `/api/user/change-view-param` saves `Word`, `FavoriteChrId` and `EmblemId` in `UserParameter`, using the original request/response contract. Fixed character portraits are client assets; favorite-character selection is represented by `FavoriteChrId`.
 
@@ -75,8 +106,11 @@ Back up the database with SQLite's backup facility or while every server using i
 | Identity, profiles and saves | Persistent per account |
 | Favorite-character selection | Saved in `UserParameter`; fixed portraits supplied by the client |
 | Rendered icons | Validated PNG upload, storage and serving |
-| Badge unlocks | Fixture-provided entries; no per-account badge ownership or unlock implementation |
+| Emblems | All matching installed manifest assets supplied to everyone; no individual unlock requirements |
+| Noble membership | Always enabled in account parameters and profile views |
+| Login history and presence | Recorded successful logins and last authenticated activity; online status inferred from recent activity, no observed logout |
 | Other-user lookup | Account ID or player code |
+| Follows and blocks | Persistent directed relationships, derived counts/flags, lists and exact player search |
 | Chat, episode comments/likes, guilds and guild messages | Fixtures or incomplete handlers; no complete persistent social system |
 | Emoji/stamps | Existing client resources/contracts; no complete persistent messaging system |
 | Raids | Placeholder |

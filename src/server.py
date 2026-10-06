@@ -27,6 +27,7 @@ import msgpack
 from flask import Flask, Response, g, has_request_context, request, url_for
 
 from accounts import AccountError, AccountStore, decode_icon, default_saves, save_key
+from profiles import add_all_emblems, noble_dates, utc_date
 
 from scripts.adapt.adapt_debug_episode_data import fill_episode_layout_group_by_episode_id
 
@@ -65,6 +66,7 @@ app.config["ACCOUNT_DB"] = os.environ.get(
 	"EMBLEO_ACCOUNT_DB", str(BASE_DIR / "data/user/top/accounts.sqlite3"))
 app.config["ACCOUNT_DEFAULTS"] = default_saves
 app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024
+app.config["ONLINE_TIMEOUT_SECONDS"] = 300
 
 # These constructors explicitly disable authentication in the original client.
 PUBLIC_API_PATHS = frozenset({
@@ -96,6 +98,13 @@ def finish_account_request(response):
 	store = getattr(g, "account_store", None)
 	if store:
 		if response.status_code < 400:
+			if getattr(g, "account_id", None):
+				now = int(time.time())
+				if request.path in ("/api/user/login", "/api/user/register"):
+					# An authenticated register retry does not create a new login.
+					if request.path.endswith("/login") or getattr(g, "issued_token", None):
+						store.record_login(g.account_id, now, request.path.rsplit("/", 1)[-1])
+				store.record_activity(g.account_id, now)
 			store.connection.commit()
 		else:
 			store.connection.rollback()
@@ -205,7 +214,11 @@ def load_json(path):
 	account = current_account_save(path)
 	if account:
 		store, account_id, key = account
-		return store.read(account_id, key)
+		value = store.read(account_id, key)
+		if key == "UserParameter.json":
+			value["NobleStartAtUnix"], value["NobleEndAtUnix"] = noble_dates()
+			value.update(store.relationship_counts(account_id))
+		return value
 	path = Path(path)
 	if not path.is_absolute():
 		path = BASE_DIR / path
@@ -1641,6 +1654,7 @@ def top():
 	top_data["parameter"] = load_json("./data/user/UserParameter.json")
 	top_data["hcBalance"] = load_json("./data/user/HcBalance.json")
 	top_data["pieUserSetting"] = load_json("./data/user/PieUserSetting.json")
+	add_all_emblems(top_data, BASE_DIR / "data/extract/manifest.json")
 
 	top_data["characterMaster"] = load_json("./data/masterdata/CharacterMasterData.json")
 	top_data["equipmentMaster"] = load_json("./data/masterdata/EquipmentMasterData.json")
@@ -1682,6 +1696,7 @@ def api_user_info():
 	json_data = load_json("./offline_responses/api/user/info.json")
 
 	json_data["user"] = load_json("./data/user/User.json")
+	json_data["supportUrl"] = f"{public_scheme()}://{request.host}"
 
 	current_time = time.time()
 	json_data["serverTime"] = str(datetime.datetime.fromtimestamp(current_time, datetime.UTC))
@@ -1989,25 +2004,76 @@ def other_user_info():
 		account_id = g.account_store.find_account(identifier)
 		if account_id is None:
 			continue
-		user = g.account_store.read(account_id, "User.json")
-		parameter = g.account_store.read(account_id, "UserParameter.json")
-		character_id = parameter.get("FavoriteChrId", "pl001")
-		characters = g.account_store.read(account_id, "UserCharacter.json")
-		revision = g.account_store.icon_revision(account_id)
-		views.append({"UserId": user["id"], "Name": user["name"],
-			"CharacterId": character_id,
-			"UserCharacter": next((c for c in characters if c["CharacterId"] == character_id), None),
-			"UserEquipment": [], "UserItem": [], "EmblemId": parameter.get("EmblemId", ""),
-			"GuildName": "", "Comment": parameter.get("Word", ""),
-			"IsLogin": account_id == g.account_id, "LastLoginAt": "1970-01-01T00:00:00Z",
-			"TotalPower": 0, "MissionRank": parameter.get("MissionRank", 1),
-			"EventScore": 0, "IsFollow": False, "IsFollower": False, "IsBlock": False,
-			"LastMessage": "", "IsNewMessage": False,
-			"NobleStartAt": "1970-01-01T00:00:00Z", "NobleEndAt": "1970-01-01T00:00:00Z",
-			"RankingCharacterId": "", "CharacterRankingRank": 0,
-			"IconUrl": url_for("account_icon", account_id=account_id,
-				revision=revision, _external=True, _scheme=public_scheme()) if revision else None})
+		views.append(user_view(account_id))
 	return pack_json_response({"UserViews": views})
+
+
+def user_view(account_id):
+	user = g.account_store.read(account_id, "User.json")
+	parameter = g.account_store.read(account_id, "UserParameter.json")
+	character_id = parameter.get("FavoriteChrId", "pl001")
+	characters = g.account_store.read(account_id, "UserCharacter.json")
+	revision = g.account_store.icon_revision(account_id)
+	is_online, last_login = g.account_store.presence(
+		account_id, int(time.time()), app.config["ONLINE_TIMEOUT_SECONDS"])
+	noble_start, noble_end = noble_dates()
+	return {"UserId": user["id"], "Name": user["name"],
+		"CharacterId": character_id,
+		"UserCharacter": next((c for c in characters if c["CharacterId"] == character_id), None),
+		"UserEquipment": [], "UserItem": [], "EmblemId": parameter.get("EmblemId", ""),
+		"GuildName": "", "Comment": parameter.get("Word", ""),
+		"IsLogin": account_id == g.account_id or is_online, "LastLoginAt": utc_date(last_login),
+		"TotalPower": 0, "MissionRank": parameter.get("MissionRank", 1), "EventScore": 0,
+		**g.account_store.relationship_flags(g.account_id, account_id),
+		"LastMessage": "", "IsNewMessage": False,
+		"NobleStartAt": utc_date(noble_start), "NobleEndAt": utc_date(noble_end),
+		"RankingCharacterId": "", "CharacterRankingRank": 0,
+		"IconUrl": url_for("account_icon", account_id=account_id,
+			revision=revision, _external=True, _scheme=public_scheme()) if revision else None}
+
+
+@app.route("/api/friend/follow", methods=["POST"])
+@app.route("/api/friend/follow-release", methods=["POST"])
+@app.route("/api/friend/follower-release", methods=["POST"])
+@app.route("/api/friend/block", methods=["POST"])
+@app.route("/api/friend/block-release", methods=["POST"])
+def change_friend_relationship():
+	identifiers = request_object().get("targetUserIds")
+	if not isinstance(identifiers, list) or len(identifiers) > 32:
+		raise AccountError("Invalid player list.")
+	targets = []
+	for identifier in identifiers:
+		if not isinstance(identifier, str) or not identifier or len(identifier) > 64:
+			raise AccountError("Invalid player identifier.")
+		account_id = g.account_store.find_account(identifier)
+		if account_id is None:
+			raise AccountError("Unknown player.")
+		if account_id not in targets:
+			targets.append(account_id)
+	action = request.path.rsplit("/", 1)[-1]
+	for account_id in targets:
+		g.account_store.change_relationship(g.account_id, account_id, action)
+	response = {"UserParameter": load_json("./data/user/UserParameter.json"),
+		"Results": [user_view(account_id) for account_id in targets]}
+	if action == "follow":
+		response.update(Mission=[], MissionMaster=[], OrderdIds=[])
+	return pack_json_response(response)
+
+
+@app.route("/api/friend/list", methods=["GET", "POST"])
+def friend_list():
+	return pack_json_response({key: [user_view(account_id) for account_id in accounts]
+		for key, accounts in g.account_store.relationship_lists(g.account_id).items()})
+
+
+@app.route("/api/friend/search", methods=["POST"])
+def friend_search():
+	identifier = request_object().get("searchId")
+	if not isinstance(identifier, str) or not identifier or len(identifier) > 64:
+		raise AccountError("Invalid player identifier.")
+	account_id = g.account_store.find_account(identifier)
+	view = user_view(account_id) if account_id else None
+	return pack_json_response({"User": view, "Users": [view] if view else []})
 
 
 @app.route("/api/character-icon/upload-icon", methods=["POST"])
@@ -2044,6 +2110,10 @@ def public_scheme():
 def any_path(req_path):
 	# Account secrets and uploaded images must never be captured by this fallback.
 	app.logger.info("Unhandled game route: %s", request.path)
+	if req_path in ("api/friend/follow", "api/friend/follow-release",
+			"api/friend/follower-release", "api/friend/block",
+			"api/friend/block-release", "api/friend/search"):
+		return account_error_response("This friend endpoint requires POST.", 405)
 	if req_path in ("api/user/login-migration", "api/user/register-migration",
 			"api/user/get-migration-info", "api/user/bnid-migration",
 			"api/user/get-bnid-migration-info", "api/user/bnid-release"):
