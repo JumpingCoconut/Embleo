@@ -148,6 +148,33 @@ class SocialTests(unittest.TestCase):
         result = self.unpack(self.post('/api/friend/search', {'searchId': 'Match'}, token=self.at))
         self.assertEqual(len(result['Users']), 32)
 
+    def test_profile_dialog_resolves_account_and_requested_character(self):
+        store = AccountStore(self.db)
+        try:
+            characters = store.read(self.bob['id'], 'UserCharacter.json')
+            characters.append({'CharacterId': 'pl002', 'Level': 7, 'VisualEquipment': ['costume', 'weapon']})
+            store.write(self.bob['id'], 'UserCharacter.json', characters)
+            store.connection.commit()
+        finally:
+            store.close()
+        before = self.saved(self.bob, 'UserParameter.json')
+        for identifier in (self.bob['id'], self.bob['playerCode']):
+            result = self.unpack(self.post('/api/user/other-user-info',
+                {'userIdInfo': [identifier + ',pl002']}, token=self.at))
+            self.assertEqual(len(result['UserViews']), 1)
+            view = result['UserViews'][0]
+            self.assertEqual(view['UserId'], self.bob['id'])
+            self.assertEqual(view['CharacterId'], 'pl002')
+            self.assertEqual(view['UserCharacter']['Level'], 7)
+        self.assertEqual(self.saved(self.bob, 'UserParameter.json'), before)
+        plain = self.unpack(self.post('/api/user/other-user-info',
+            {'userIdInfo': [self.bob['id']]}, token=self.at))
+        self.assertEqual(plain['UserViews'][0]['CharacterId'], 'pl001')
+        for identifier in (self.bob['id'] + ',', ',' + 'pl002',
+                           self.bob['id'] + ',pl002,extra', self.bob['id'] + ',missing'):
+            self.assertEqual(self.post('/api/user/other-user-info',
+                {'userIdInfo': [identifier]}, token=self.at).status_code, 400)
+
 
 class SocialMigrationTests(unittest.TestCase):
     setUp = account_tests.AccountTests.setUp
