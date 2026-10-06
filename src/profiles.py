@@ -39,16 +39,22 @@ def add_all_emblems(top_data, manifest_path):
     emblems = all_emblems(manifest_path)
     if not emblems:
         return
+    factions = {entry.get("CharacterId"): entry.get("Faction")
+                for entry in top_data.get("characterMaster", [])}
     # Preserve unrelated stamps and deck data. Category 2 is Wappen/emblems.
     emblem_ids = set(emblems)
     for field in ("stampBadgeMaster", "stampBadge"):
         top_data[field] = [entry for entry in top_data.get(field, [])
                            if entry.get("Id") not in emblem_ids]
     for order, emblem_id in enumerate(emblems):
+        character = re.fullmatch(r"emblem_(pl\d+)_\d+", emblem_id)
+        faction = factions.get(character.group(1)) if character else None
+        # The client filters tabs by SubCategory. Its fallback is Other (4).
+        subcategory = faction if faction in (1, 2, 3) else 4
         top_data["stampBadgeMaster"].append({
             "Id": emblem_id, "Category": 2, "Number": order,
-            "Type": 0, "SubCategory": 1})
+            "Type": 0, "SubCategory": subcategory})
         top_data["stampBadge"].append({
             "Id": emblem_id, "Category": 2, "Type": 0,
             "SourceId": "uiexternal/ui/common/textures/icon/emblem/icon_" + emblem_id,
-            "SortOrder": order, "SubCategory": 1, "IsUse": True})
+            "SortOrder": order, "SubCategory": subcategory, "IsUse": True})

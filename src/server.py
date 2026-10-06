@@ -1654,9 +1654,9 @@ def top():
 	top_data["parameter"] = load_json("./data/user/UserParameter.json")
 	top_data["hcBalance"] = load_json("./data/user/HcBalance.json")
 	top_data["pieUserSetting"] = load_json("./data/user/PieUserSetting.json")
-	add_all_emblems(top_data, BASE_DIR / "data/extract/manifest.json")
 
 	top_data["characterMaster"] = load_json("./data/masterdata/CharacterMasterData.json")
+	add_all_emblems(top_data, BASE_DIR / "data/extract/manifest.json")
 	top_data["equipmentMaster"] = load_json("./data/masterdata/EquipmentMasterData.json")
 	top_data["itemMaster"] = load_json("./data/masterdata/ItemMasterData.json")
 
@@ -2069,11 +2069,11 @@ def friend_list():
 @app.route("/api/friend/search", methods=["POST"])
 def friend_search():
 	identifier = request_object().get("searchId")
-	if not isinstance(identifier, str) or not identifier or len(identifier) > 64:
+	if not isinstance(identifier, str) or not identifier.strip() or len(identifier) > 64:
 		raise AccountError("Invalid player identifier.")
-	account_id = g.account_store.find_account(identifier)
-	view = user_view(account_id) if account_id else None
-	return pack_json_response({"User": view, "Users": [view] if view else []})
+	views = [user_view(account_id) for account_id in
+		g.account_store.search_accounts(identifier.strip())]
+	return pack_json_response({"User": views[0] if views else None, "Users": views})
 
 
 @app.route("/api/character-icon/upload-icon", methods=["POST"])

@@ -117,6 +117,37 @@ class SocialTests(unittest.TestCase):
             self.assertEqual(list(pool.map(follow, range(6))), [200] * 6)
         self.assertEqual(len(self.listing(self.bt)['FollowerUsers']), 1)
 
+    def test_search_names_duplicates_and_follow_found_player(self):
+        duplicate, _ = self.register('Bob')
+        partial, _ = self.register('Bobby')
+        result = self.unpack(self.post('/api/friend/search', {'searchId': '  bOB  '}, token=self.at))
+        ids = [view['UserId'] for view in result['Users']]
+        self.assertEqual(set(ids[:2]), {self.bob['id'], duplicate['id']})
+        self.assertEqual(ids[2], partial['id'])
+        self.assertEqual(result['User'], result['Users'][0])
+        self.unpack(self.change('follow', self.at, ids[0]))
+        self.assertEqual(self.listing(self.at)['FollowUsers'][0]['UserId'], ids[0])
+        # ID/code matches take priority even if a nickname contains that value.
+        self.register(self.bob['playerCode'])
+        by_code = self.unpack(self.post('/api/friend/search',
+            {'searchId': self.bob['playerCode']}, token=self.at))
+        self.assertEqual([view['UserId'] for view in by_code['Users']], [self.bob['id']])
+        self.unpack(self.post('/api/user/change-name', {'name': 'Robert'}, token=self.bt))
+        renamed = self.unpack(self.post('/api/friend/search', {'searchId': 'Robert'}, token=self.at))
+        self.assertEqual(renamed['User']['UserId'], self.bob['id'])
+        for query in (' ', None, ['Bob'], 'x' * 65):
+            self.assertEqual(self.post('/api/friend/search', {'searchId': query}, token=self.at).status_code, 400)
+        self.assertEqual(self.post('/api/friend/search', {'searchId': 'Bob'}).status_code, 401)
+
+    def test_name_search_is_literal_and_bounded(self):
+        self.register('100%_Hero')
+        result = self.unpack(self.post('/api/friend/search', {'searchId': '%_'}, token=self.at))
+        self.assertEqual([view['Name'] for view in result['Users']], ['100%_Hero'])
+        for index in range(34):
+            self.register('Match ' + str(index))
+        result = self.unpack(self.post('/api/friend/search', {'searchId': 'Match'}, token=self.at))
+        self.assertEqual(len(result['Users']), 32)
+
 
 class SocialMigrationTests(unittest.TestCase):
     setUp = account_tests.AccountTests.setUp
