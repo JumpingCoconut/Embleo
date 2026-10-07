@@ -16,7 +16,7 @@ import zlib
 from pathlib import Path
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 INITIAL_SCHEMA = """
     CREATE TABLE IF NOT EXISTS accounts (
         id TEXT PRIMARY KEY, player_code TEXT UNIQUE NOT NULL,
@@ -152,6 +152,12 @@ class AccountStore:
                     if statement.strip():
                         self.connection.execute(statement)
                 self.connection.execute("PRAGMA user_version=3")
+            if version < 4:
+                from multiplayer import MULTIPLAYER_SCHEMA
+                for statement in MULTIPLAYER_SCHEMA.split(";"):
+                    if statement.strip():
+                        self.connection.execute(statement)
+                self.connection.execute("PRAGMA user_version=4")
             self.connection.commit()
             self.connection.execute("BEGIN IMMEDIATE")
         except Exception:

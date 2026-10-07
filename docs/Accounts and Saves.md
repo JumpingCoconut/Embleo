@@ -38,7 +38,7 @@ New accounts receive defaults from the existing game-data generators. Persisting
 
 ### Database schema and compatibility
 
-The current schema is version 3, stored in SQLite's `PRAGMA user_version`.
+The current schema is version 4, stored in SQLite's `PRAGMA user_version`.
 
 | Table | Contents and key |
 | --- | --- |
@@ -53,7 +53,7 @@ The current schema is version 3, stored in SQLite's `PRAGMA user_version`.
 
 Account references use foreign keys. Relationship pairs are unique, prohibit self-targeting and have reverse indexes for incoming lookups. Activity/history timestamps are Unix seconds.
 
-Unversioned, version 1 and version 2 databases are upgraded automatically in a transaction under a write lock. Existing accounts, saves, tokens, icons and recorded activity are preserved. Migration cannot reconstruct earlier logins or relationships from saved counters. A newer unsupported schema is rejected without alteration; older servers cannot open version 3 databases.
+Unversioned databases and versions 1 through 3 are upgraded automatically in a transaction under a write lock. Existing accounts, saves, tokens, icons, recorded activity and relationships are preserved. Migration cannot reconstruct earlier logins or relationships from saved counters. Version 4 adds persistent messaging and guild tables described in [Multiplayer](Multiplayer.md). A newer unsupported schema is rejected without alteration; older servers cannot open version 4 databases.
 
 ### Administrative editing
 
@@ -98,7 +98,7 @@ Mutations accept a `targetUserIds` list; search accepts a `searchId` string. Sea
 
 Follow requests are rejected if either account has blocked the other. A player cannot remove another player's block. These block semantics are emulator policy.
 
-No total follow cap or mission rewards are implemented. Other-player profile equipment/items are not populated. Blocking enforces follow relationships; chat and messaging do not have a complete blocking system.
+No total follow cap or mission rewards are implemented. Other-player profile equipment/items are not populated. Blocking enforces follow relationships and prevents direct messaging in either direction; blocked players' guild messages are hidden. See [Multiplayer](Multiplayer.md) for messaging and guild permissions.
 
 ## Login history and presence
 
@@ -173,9 +173,11 @@ Back up the database with SQLite's backup facility or while every server using i
 | Login history and presence | Recorded successful logins and last authenticated activity; online status inferred from recent activity, no observed logout |
 | Other-user lookup | Account ID or player code |
 | Follows and blocks | Persistent directed relationships, derived counts/flags, lists and ID/code or nickname search |
-| Chat, episode comments/likes, guilds and guild messages | Fixtures or incomplete handlers; no complete persistent social system |
-| Emoji/stamps | Existing client resources/contracts; no complete persistent messaging system |
-| Raids | Placeholder |
+| Direct chat | Persistent conversations, likes, destinations, read state and block enforcement |
+| Guilds and guild messages | Persistent membership, applications, roles, moderation, messages and likes; see [Multiplayer](Multiplayer.md) for limits |
+| Episode comments/likes | Fixtures or incomplete handlers |
+| Emoji/stamps | Direct-message stamp type supported; no individual ownership/unlock enforcement |
+| Raids | Unavailable: typed empty discovery lists and explicit 501 for other PvE calls; Prizm transport/event/battle implementation required |
 | Purchases | Disabled; purchase attempts do not create gifts |
 | Official linking and account recovery | Unavailable |
 
@@ -187,6 +189,7 @@ Run the focused tests from the repository root using the project's Python enviro
 python -m unittest discover -s tests -p test_accounts.py
 python -m unittest discover -s tests -p test_social.py
 python -m unittest discover -s tests -p test_profiles.py
+python -m unittest discover -s tests -p test_multiplayer.py
 ```
 
 `test_accounts.py` covers authentication, account isolation, persistence, migrations, activity and icons. `test_social.py` covers relationship changes, validation, counts and profile flags. `test_profiles.py` covers manifest-based emblem availability and faction tabs.

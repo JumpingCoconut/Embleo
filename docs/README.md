@@ -20,6 +20,8 @@ When documenting behavior, distinguish verified code/data facts from inferred ga
 
 ## Other Game Systems
 
+- [Multiplayer](Multiplayer.md): persistent direct chat, guilds, guild chat and the remaining co-op raid transport requirements.
+
 - [Level Up Camp](Level%20Up%20Camp.md)
 - [Daily Rewards](calendar/Daily%20Rewards.md)
 - [Events](calendar/Events.md)

@@ -28,6 +28,7 @@ from flask import Flask, Response, g, has_request_context, request, url_for
 
 from accounts import AccountError, AccountStore, decode_icon, default_saves, save_key
 from profiles import add_all_emblems, noble_dates, utc_date
+from multiplayer import SocialStore, register_multiplayer
 
 from scripts.adapt.adapt_debug_episode_data import fill_episode_layout_group_by_episode_id
 
@@ -1655,6 +1656,11 @@ def top():
 	top_data["hcBalance"] = load_json("./data/user/HcBalance.json")
 	top_data["pieUserSetting"] = load_json("./data/user/PieUserSetting.json")
 
+	social = SocialStore(g.account_store, g.account_id)
+	top_data.setdefault("badge", {}).update(
+		IsNewMessage=social.direct_unread(),
+		IsNewGuildMessage=social.guild_unread())
+
 	top_data["characterMaster"] = load_json("./data/masterdata/CharacterMasterData.json")
 	add_all_emblems(top_data, BASE_DIR / "data/extract/manifest.json")
 	top_data["equipmentMaster"] = load_json("./data/masterdata/EquipmentMasterData.json")
@@ -1948,50 +1954,6 @@ def login_calendar_open_tile():
 	return pack_json_response(open_tile_result)
 
 
-@app.route("/api/guild/top", methods=["GET", "POST"])
-def guild_top():
-	guild_top_response = {
-		"UserGuild": {},
-		"Guild": {},
-		"Members": [],
-		"Applications": []
-	}
-
-	guild_top_response["UserGuild"] = {
-		"Status": 1,  # Member
-		"JoinedAt": 0,
-		"Exstatus": 0
-	}
-
-	guild_top_response["Guild"] = {
-		"GuildId": "asdf",
-		"ShortGuildId": "asdf",
-		"Status": 0,
-		"Name": "Lumi",
-		"LastAccessAt": 0,
-		"Members": [],
-		"Officers": [],
-		"Level": 0,
-		"Exp": 0,
-		"Coin": 0,
-		"Recruitment": -1,
-		"Mood": 1,
-		"Cadence": -1,
-		"MinimumPower": 0,
-		"Description": "Description",
-		"Icon": "emblem_em001_001",
-		"Title": "Lumi",
-		"NotificationBody": "",
-		"CommentCount": 0,
-		"BlockCount": 0,
-		"MemberCount": 0,
-		"LeaderName": "Cheese",
-		"EventScore": 0
-	}
-
-	return pack_json_response(guild_top_response)
-
-
 @app.route("/api/user/other-user-info", methods=["GET", "POST"])
 def other_user_info():
 	identifiers = request_object().get("userIdInfo", [])
@@ -2024,15 +1986,17 @@ def user_view(account_id, character_id=None):
 	is_online, last_login = g.account_store.presence(
 		account_id, int(time.time()), app.config["ONLINE_TIMEOUT_SECONDS"])
 	noble_start, noble_end = noble_dates()
+	social = SocialStore(g.account_store, g.account_id)
+	last_message, unread = social.direct_state(account_id)
 	return {"UserId": user["id"], "Name": user["name"],
 		"CharacterId": character_id,
 		"UserCharacter": character,
 		"UserEquipment": [], "UserItem": [], "EmblemId": parameter.get("EmblemId", ""),
-		"GuildName": "", "Comment": parameter.get("Word", ""),
+		"GuildName": social.guild_name(account_id), "Comment": parameter.get("Word", ""),
 		"IsLogin": account_id == g.account_id or is_online, "LastLoginAt": utc_date(last_login),
 		"TotalPower": 0, "MissionRank": parameter.get("MissionRank", 1), "EventScore": 0,
 		**g.account_store.relationship_flags(g.account_id, account_id),
-		"LastMessage": "", "IsNewMessage": False,
+		"LastMessage": last_message, "IsNewMessage": unread,
 		"NobleStartAt": utc_date(noble_start), "NobleEndAt": utc_date(noble_end),
 		"RankingCharacterId": "", "CharacterRankingRank": 0,
 		"IconUrl": url_for("account_icon", account_id=account_id,
@@ -2110,6 +2074,9 @@ def account_icon(account_id, revision):
 def public_scheme():
 	# TLS can terminate at the reverse proxy. Do not trust forwarded host/prefix.
 	return "https" if request.headers.get("X-Forwarded-Proto") == "https" else request.scheme
+
+
+register_multiplayer(app, request_object, pack_json_response, user_view, account_error_response)
 
 
 # Catch-all for any path
