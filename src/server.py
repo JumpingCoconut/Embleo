@@ -44,7 +44,6 @@ SKIP_ROUTE_FORK_MERGE = False
 
 FAKE_CHECKPOINT_PATH = "./checkpoint.txt"
 
-
 '''
 logging.basicConfig(
 	filename='app.log',		 # The name of the log file
@@ -64,6 +63,20 @@ MSGPACK_CONTENT_TYPE = "application/x-msgpack"
 # app.register_blueprint(challenge_mission, url_prefix="/api/challenge-mission/")
 
 time_variable = time.time()
+
+
+# Skip registration on each start
+@app.after_request
+def finish_account_request(response):
+
+	account_token: str
+
+	with open("./account_token.txt", "r") as f:
+		account_token = f.read()
+
+	response.headers["Authorization"] = "Bearer " + account_token
+
+	return response
 
 
 def resolve_response_path(req_path: str):
@@ -388,6 +401,7 @@ episode_master_data_path_format = "./data/masterdata/episode/{0}/"
 # Use unadapted debug data for now
 episode_master_data_path_format = "./data/extract/masterdatadebug/episode/{0}/"
 
+
 def get_episode_gimmick_id_list(episode_id):
 	episode_gimmick_id_list = []
 
@@ -680,7 +694,8 @@ def fill_enemy_detail_by_episode_id(episode_id):
 		"Enemies": []
 	}
 
-	episode_enemy_data = load_json(episode_master_data_path_format.format(episode_id) + "EpisodeEnemyMasterDataObject.json")
+	episode_enemy_data = load_json(
+		episode_master_data_path_format.format(episode_id) + "EpisodeEnemyMasterDataObject.json")
 
 	for enemy in episode_enemy_data["Datas"]:
 		master_enemy_id = enemy["_individualID"]
@@ -812,7 +827,8 @@ def get_episode_character_visual_settings(episode_id):
 	visual_settings = []
 
 	# From debug checkpoint
-	episode_checkpoint_data = load_json("./data/extract/masterdatadebug/episode/{0}/EpisodeCheckPointMasterDataObject.json".format(episode_id))
+	episode_checkpoint_data = load_json(
+		"./data/extract/masterdatadebug/episode/{0}/EpisodeCheckPointMasterDataObject.json".format(episode_id))
 
 	for entry in episode_checkpoint_data["Datas"]:
 		visual_setting = {
@@ -852,9 +868,9 @@ def episode_start():
 	start_data["EpisodeToken"] = episode_id
 
 	start_data["CharacterDetail"] = fill_episode_character_detail()
-	
+
 	start_data["CharacterDetail"]["baseVisual"]["settings"] = get_episode_character_visual_settings(episode_id)
-	
+
 	# Just a list of masterdata ids?
 	start_data["EnemyDetail"] = fill_enemy_detail_by_episode_id(episode_id)
 
@@ -883,6 +899,7 @@ def episode_start():
 	start_data["MasterGroup"] = fill_episode_master_group()
 
 	return pack_json_response(start_data)
+
 
 @app.route("/api/episode/continue", methods=["GET", "POST"])
 def episode_continue():
@@ -929,6 +946,7 @@ def episode_continue():
 	start_data["MasterGroup"] = fill_episode_master_group()
 
 	return pack_json_response(start_data)
+
 
 @app.route("/api/episode/retire", methods=["GET", "POST"])
 def episode_retire():
@@ -1250,8 +1268,7 @@ def fill_episode_character_detail():
 	# Better way would be only loading options used by an episode
 	character_detail["baseVisual"]["characters"] = load_json(
 		"./data/masterdata/EpisodeCharacterVisualMasterData.json")
-	
-	
+
 	return character_detail
 
 
@@ -1296,6 +1313,7 @@ def secret_mission_start():
 
 	start_data["CharacterDetail"] = character_detail
 
+	'''
 	episode_scenario_master_data = load_json("./data/masterdata/scenario/{0}.json".format(secret_mission_id))
 	for entry in episode_scenario_master_data:
 
@@ -1314,6 +1332,7 @@ def secret_mission_start():
 			# start_data["CharacterDetail"]["baseVisual"]["settings"][0] = preload_settings
 
 			break
+	'''
 
 	start_data["CharacterDetail"]["baseVisual"]["characters"] = load_json(
 		"./data/masterdata/EpisodeCharacterVisualMasterData.json")
@@ -1322,6 +1341,52 @@ def secret_mission_start():
 	start_data["EpisodeDetail"] = fill_episode_detail_by_episode_id(secret_mission_id)
 
 	# EpisodeDetailUser
+
+	# Add Apple Gummies
+	'''
+	for collectable in start_data["EpisodeDetail"]["LayoutGroup"]["StaticItems"]:
+		box_id = collectable["EpisodeStaticItemId"]
+
+		box_drop = {
+			"Target": 5,
+			"TargetId": box_id,
+			"Items": []
+		}
+
+		item = {
+			"DropId": "AppleGummy_001",
+			"Type": 2,
+			"ItemId": "itin000001",
+			"Count": 1
+		}
+
+		box_drop["Items"].append(item)
+
+		start_data["EpisodeDetailUser"]["acquireStaticItemIds"].append(box_id)
+		# start_data["EpisodeDetailUser"]["drops"].append(box_drop)
+
+		# print(start_data["EpisodeDetailUser"]["drops"])
+
+	# Add all breakables
+	for breakable in start_data["EpisodeDetail"]["LayoutGroup"]["Breakables"]:
+		box_id = breakable["EpisodeBreakableId"]
+
+		box_drop = {
+			"Target": 2,
+			"TargetId": box_id,
+			"Items": [{
+				"DropId": box_id,
+				"Type": 2,
+				"ItemId": "ing019",
+				"Count": 1
+			}]
+		}
+
+		start_data["EpisodeDetailUser"]["acquireStaticItemIds"].append(box_id)
+		# start_data["EpisodeDetailUser"]["drops"].append(box_drop)
+	'''
+
+	print(start_data["EpisodeDetailUser"]["drops"])
 
 	# MissionDetail
 	# Secret Mission Detail from episode master data
@@ -1334,7 +1399,7 @@ def secret_mission_start():
 				if secret_mission["Id"] == secret_mission_id:
 					start_data["MissionDetail"] = secret_mission["Detail"]
 
-					print(start_data["MissionDetail"])
+				# print(start_data["MissionDetail"])
 
 	# MasterGroup
 	start_data["MasterGroup"] = fill_episode_master_group()
@@ -1504,7 +1569,7 @@ def top_add_characters():
 
 @app.route("/api/user/top", methods=["GET", "POST"])
 def top():
-	top_data = json.load(open("./offline_responses/api/user/top.json", "r"))
+	top_data = load_json("./offline_responses/api/user/top.json")
 	top_data["user"] = load_json("./data/user/User.json")
 
 	# Auto-fill orderdIds
@@ -1605,17 +1670,24 @@ def api_user_character_update():
 
 @app.route("/api/user/login", methods=["GET", "POST"])
 def api_user_login():
+	print(request)
+	print(request.headers)
+
 	login_data = load_json("./offline_responses/api/user/login.json")
 	login_data["user"] = load_json("./data/user/User.json")
 
 	# login_data["loginInfo"]["name"] = login_data["user"]["name"]
 
-	body = pack_json_response(login_data)  # keep leading slash semantics consistent
-	return Response(body, content_type=MSGPACK_CONTENT_TYPE)
+	# body = pack_json_response(login_data)  # keep leading slash semantics consistent
+
+
+	return pack_json_response(login_data)
 
 
 @app.route("/api/user/register", methods=["GET", "POST"])
 def api_user_register():
+	print(request)
+	print(request.headers)
 	request_data = msgpack.unpackb(request.data)
 
 	print(request_data)
@@ -1634,8 +1706,12 @@ def api_user_register():
 	response_json["User"] = user_data
 	response_json["UserItems"] = load_json("./data/user/UserItems.json")
 
-	body = pack_json_response(response_json)
-	return Response(body, content_type=MSGPACK_CONTENT_TYPE)
+	account_token = secrets.token_urlsafe(32)
+
+	with open("./account_token.txt", "w") as of:
+		of.write(account_token)
+
+	return pack_json_response(response_json)
 
 
 @app.route("/api/billing/get-product-ids", methods=["GET", "POST"])
@@ -1943,7 +2019,7 @@ if __name__ == "__main__":
 
 	if not os.path.exists("./post/"):
 		os.makedirs("./post/", exist_ok=True)
-	
+
 	# print("Current Working Directory:", os.getcwd())
-	
+
 	app.run(host="0.0.0.0", port=5001, debug=True)
