@@ -6,6 +6,7 @@ from .episode_data.checkpoints import adapt_checkpoints_for_episode_layout
 from .episode_data.enemies import adapt_episode_enemies_for_episode_layout
 from .episode_data.gimmicks import adapt_gimmicks_for_episode_layout
 from .episode_data.npcs import adapt_npcs_for_episode_layout
+from .episode_data.items import adapt_items_for_episode_layout
 from .episode_data.static_items import adapt_static_items_for_episode_layout
 from .episode_data.secret_missions import adapt_secret_missions_for_episode_layout
 from .episode_data.defense_targets import adapt_defense_targets_for_episode_layout
@@ -103,5 +104,8 @@ def fill_episode_layout_group_by_episode_id(episode_id):
                 LayoutGroup[group_name] = adapt_function(master_data, episode_id)
             else:
                 LayoutGroup[group_name] = adapt_function(master_data)
+
+    # Adapt items separately, since they come from multiple files
+    LayoutGroup["Items"] = adapt_items_for_episode_layout(episode_master_data_path)
 
     return LayoutGroup
