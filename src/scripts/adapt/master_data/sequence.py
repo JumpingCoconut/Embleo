@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 
 def adapt_debug_sequence_list(sequence_list):
@@ -58,10 +59,10 @@ def adapt_debug_sequences_master_data(input_file_path, output_folder):
     character_sequences = sorted(character_sequences, key=lambda x: x['CharacterId'])
     enemy_sequences = sorted(enemy_sequences, key=lambda x: x['EnemyId'])
 
-    with open(output_folder + "CharacterSequenceMasterData.json", "w") as of:
+    with open(output_folder / "CharacterSequenceMasterData.json", "w") as of:
         json.dump(character_sequences, of, indent=4)
 
-    with open(output_folder + "EnemySequenceMasterData.json", "w") as of:
+    with open(output_folder / "EnemySequenceMasterData.json", "w") as of:
         json.dump(enemy_sequences, of, indent=4)
 
 

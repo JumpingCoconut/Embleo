@@ -184,204 +184,6 @@ def provision():
 
 
 ########################
-#			GACHA
-########################
-"""
-For each pulled item
-
-Roll for rarity
-5☆ -  5%
-4☆ - 30%
-3☆ - 65%
-
-Roll for random item in that rarity
-	TODO Rate Up have higher chance
-	- Sort out prize pool by rarity
-	- secret.choice() a random item
-	
-	Handle a case where a rarity is not present
-
-"""
-
-
-def roll_rarity():
-	five_star_chance = 5
-	four_star_chance = 30
-
-	chance_number = secrets.randbelow(100) + 1	# Add 1 to put it into 1-100 range, instead of 0-99
-
-	if chance_number <= five_star_chance:
-		return 5
-	elif five_star_chance < chance_number <= four_star_chance:
-		return 4
-	elif chance_number > four_star_chance:
-		return 3
-
-
-def roll_equipment_item(single_rarity_equipment_list):
-	return secrets.choice(single_rarity_equipment_list)
-
-
-def sort_gacha_prize_list_by_rarity(prize_list):
-	sorted_prize_list = {
-		"5": [],
-		"4": [],
-		"3": []
-	}
-
-	for entry in prize_list:
-		rarity = entry["Rarity"]
-		sorted_prize_list[str(rarity)].append(entry)
-
-	return sorted_prize_list
-
-
-def gacha_get_draw_result(pull_amount, sorted_rarity_prize_list):
-	gacha_result = []
-
-	for i in range(pull_amount):
-		rarity_roll = roll_rarity()
-		equipment_item = roll_equipment_item(sorted_rarity_prize_list[str(rarity_roll)])
-		equipment_id = equipment_item["ItemId"]
-
-		gacha_result.append({"ItemId": equipment_id})
-
-	return gacha_result
-
-
-def gacha_find_banner(gacha_master, gacha_base_id):
-	for gacha in gacha_master:
-		if gacha["GachaBaseId"] == gacha_base_id:
-			return gacha
-
-
-user_equipment_example = {
-	"EquipmentId": "pl001_04_001",
-	"Category": 1,
-	"Level": 1,
-	"Exp": 1,
-	"UpdatedAt": 0,
-	"SpLevel": 1,
-	"SpNext": 5,
-	"CreatedAt": 0
-}
-
-
-def is_equipment_id_in_user_equipment(equipment_id, user_equipment):
-	return any(equipment_id in i for i in user_equipment)
-
-
-@app.route("/api/gacha/draw", methods=["GET", "POST"])
-def gacha_draw():
-	draw_request_data = msgpack.unpackb(request.data)
-
-	request_gacha_id = draw_request_data["gachaId"]
-
-	gacha_draw_result = {
-		"GachaId": request_gacha_id,
-		"Gacha": [],
-		# "GachaTicket": [],
-		"HcBalance": {},
-		"OrderdIds": [],
-		"Equipment": [],
-		"Character": [],
-		"Result": []
-		# "Mission": [],
-		# "MissionMaster": []
-	}
-
-	# gacha_master = load_json("./data/masterdata/GachaMasterData generated.json")
-
-	# Update banner retrieval time in gacha master
-	for entry in gacha_master:
-		current_time = time.time()
-		entry["ContentsOrderDate"] = int(current_time)
-
-	# Send current banners
-	# Implement removing Daily banner
-	gacha_draw_result["Gacha"] = gacha_master
-
-	# _single or _ten
-	gacha_base_id = request_gacha_id[:request_gacha_id.rfind("_")]
-	pull_count: int
-
-	current_banner = gacha_find_banner(gacha_master, gacha_base_id)
-
-	for body in current_banner["Bodies"]:
-		if body["GachaId"] == request_gacha_id:
-			pull_count = body["EjectionCount"]
-			break
-
-	# Implement currency subtraction
-	gacha_draw_result["HcBalance"] = load_json("./data/user/HcBalance.json")
-
-	# Pulling gacha items
-	sorted_rarity_prize_list = sort_gacha_prize_list_by_rarity(current_banner["Prizes"])
-	gacha_draw_result["Result"] = gacha_get_draw_result(pull_count, sorted_rarity_prize_list)
-
-	# Implement upgrades
-	# Check if item_id is in the user_equipment
-	# If it's present, increment the level by 1
-	# If it's not - add the item
-
-	equipment_master = load_json("./data/masterdata/EquipmentMasterData.json")
-	user_equipment = load_json("./data/user/UserEquipment.json")
-
-	for entry in gacha_draw_result["Result"]:
-		item_id = entry["ItemId"]
-
-		# Add equipment piece if it's not in response
-		new_equipment = dict.copy(user_equipment_example)
-
-		new_equipment["EquipmentId"] = item_id
-
-		if "wp" in item_id:
-			new_equipment["Category"] = 2
-
-		if "acc" in item_id:
-			new_equipment["Category"] = 3
-
-		if new_equipment not in gacha_draw_result["Equipment"]:
-			gacha_draw_result["Equipment"].append(new_equipment)
-
-	# gacha_draw_result["Equipment"] = user_equipment
-	# gacha_draw_result["Character"] = load_json("./data/user/UserCharacter.json")
-
-	return pack_json_response(gacha_draw_result)
-
-
-########################
-#			MARKET
-########################
-
-@app.route("/api/cooking/market-buy", methods=["GET", "POST"])
-def market_buy():
-	# {"carts": [{"id": "ing040", "amount": 5, "itemId": "ing040", "price": 199}], "gold": 10000, "total": 995}
-
-	cart_json = msgpack.unpackb(request.data)
-
-	bought = {}
-
-	for item in cart_json["carts"]:
-		bought[item["itemId"]] = item["amount"]
-
-	for item in user_items_json_data:
-		if item["ItemId"] in bought:
-			item["Count"] += bought[item["itemId"]]
-
-	return pack_json_response({})
-
-
-@app.route("/api/cooking/market-goods", methods=["GET", "POST"])
-def market_list():
-	market_goods = {
-		"Goods": load_json("./data/food/market_goods.json")
-	}
-
-	return pack_json_response(market_goods)
-
-
-########################
 #			EPISODE
 ########################
 
@@ -1495,16 +1297,23 @@ def top_add_episodes():
 
 			episode_ordered_ids.append(dict.copy(episode_order))
 
-		'''
-		# Crossroads
-		episode_order = {
-			"MasterDataId": "mstone_ep00" + str(episode_number),
-			"Type": 0
-		}
-		
-		if episode_order not in ordered_ids:
-			episode_ordered_ids.append(dict.copy(episode_order))
-		'''
+	# Crossroads
+	episode_order = {
+		"MasterDataId": "mstone_ep001",
+		"Type": 0
+	}
+
+	# if episode_order not in ordered_ids:
+	episode_ordered_ids.append(dict.copy(episode_order))
+
+	# Crossroads
+	episode_order = {
+		"MasterDataId": "mstone_ep003",
+		"Type": 0
+	}
+
+	# if episode_order not in ordered_ids:
+	episode_ordered_ids.append(dict.copy(episode_order))
 
 	# print(episode_ordered_ids)
 	return episode_ordered_ids
@@ -1710,96 +1519,6 @@ def api_user_register():
 
 	with open("./account_token.txt", "w") as of:
 		of.write(account_token)
-
-	return pack_json_response(response_json)
-
-
-@app.route("/api/billing/get-product-ids", methods=["GET", "POST"])
-def api_billing_get_product_ids():
-	response_json = {
-		"productIds": []
-	}
-
-	if DISABLE_SHOP:
-		return pack_json_response(response_json)
-
-	ProductList = load_json("./data/shop/ProductList.json")
-
-	for entry in ProductList:
-		response_json.append(entry["ProductId"])
-
-	NobleShop = load_json("./data/shop/NobleShop.json")
-
-	for entry in NobleShop:
-		response_json.append(entry["Id"])
-
-	return pack_json_response(response_json)
-
-
-@app.route("/api/billing/list", methods=["GET", "POST"])
-def api_billing_list():
-	response_json = {
-		"productList": [],
-		"pieUserSetting": load_json("./data/user/PieUserSetting.json"),
-		"hcBalance": load_json("./data/user/HcBalance.json")
-	}
-
-	if DISABLE_SHOP:
-		return pack_json_response(response_json)
-
-	response_json["productList"] = load_json("./data/shop/ProductList.json")
-
-	return pack_json_response(response_json)
-
-
-@app.route("/api/billing/is-buyable", methods=["GET", "POST"])
-def api_billing_is_buyable():
-	# No paid item is really buyable, since it softlocks the game.
-	response_json = load_json("./offline_responses/api/billing/is-buyable.json")
-
-	# Send the pack to present box instead.
-	query_params = parse_query_params(request.url)
-
-	product_id = query_params["productId"][0]
-
-	t = time.time()
-
-	print(product_id)
-	print(int(t))
-
-	new_present = {
-		"UserPresentId": product_id + " " + str(int(t)),
-		"Reward": {
-			"Type": 1,
-			"Amount": 6480
-		},
-		"Comment": "From the Shop",
-		"Status": 0
-	}
-
-	user_present_box = load_json("./data/user/Presents.json")
-
-	# TODO Handle buying packs by splitting them into separate presents
-
-	product_list_data = load_json("./offline_responses/api/billing/list.json")
-
-	for entry in product_list_data["productList"]:
-
-		if entry["ProductId"] == product_id:
-
-			reward_list = entry["Rewards"]
-
-			for reward in reward_list:
-				new_present["Reward"]["Amount"] = reward["Amount"]
-
-			break
-
-	# TODO make accepting presents not crash the game
-
-	with open("./data/user/Presents.json", "w") as present_file:
-		user_present_box["userPresents"].append(new_present)
-
-		json.dump(user_present_box, present_file, indent=4)
 
 	return pack_json_response(response_json)
 
