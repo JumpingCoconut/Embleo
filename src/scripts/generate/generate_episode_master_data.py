@@ -1,6 +1,7 @@
 import json
 import os
 from enum import Enum, auto
+from pathlib import Path
 
 '''
 All episode 1 and ep 2
@@ -39,7 +40,7 @@ class EpisodeCategory(Enum):
     crossroads = 1
 
 
-def get_episode_years_from_adapted_chronology(adapted_chronology_path="./data/chronology/"):
+def get_episode_years_from_adapted_chronology(adapted_chronology_path):
     chronology_files = os.listdir(adapted_chronology_path)
 
     episode_years = {
@@ -51,7 +52,7 @@ def get_episode_years_from_adapted_chronology(adapted_chronology_path="./data/ch
 
     for chronology_file_name in chronology_files:
 
-        with open(adapted_chronology_path + chronology_file_name, 'r') as chronology_file:
+        with open(adapted_chronology_path / chronology_file_name, 'r') as chronology_file:
             chronology = json.load(chronology_file)
 
             for entry in chronology["Chronologies"][0]["Events"]:
@@ -104,7 +105,7 @@ def generate_episode_chapters(episode_id):
     return chapters
 
 
-def generate_episode_master_entry(episode_id):
+def generate_episode_master_entry(episode_id, episode_year):
     episode = dict.copy(episode_master_base)
 
     episode["EpisodeId"] = episode_id
@@ -120,27 +121,27 @@ def generate_episode_master_entry(episode_id):
 
     episode["EpisodeNo"] = int(ep_num[-1])
 
-    episode_years = get_episode_years_from_adapted_chronology()
-
-    if episode_id in episode_years:
-        episode["Year"] = episode_years[episode_id]
+    episode["Year"] = episode_year
 
     episode["Chapters"] = generate_episode_chapters(episode_id)
 
     return episode
 
 
-def generate_episode_master_data(output_folder):
+def generate_episode_master_data(output_folder, adapted_chronology_folder):
     episode_master_data = []
 
     episode_id_list = generate_episode_id_list()
+    episode_years = get_episode_years_from_adapted_chronology(adapted_chronology_folder)
 
     for episode_id in episode_id_list:
-        episode_master_entry = generate_episode_master_entry(episode_id)
+        episode_year = episode_years.get(episode_id, 0)
+
+        episode_master_entry = generate_episode_master_entry(episode_id, episode_year)
 
         episode_master_data.append(episode_master_entry)
 
-    with open(output_folder + "/EpisodeMasterData.json", "w") as f:
+    with open(output_folder / "EpisodeMasterData.json", "w") as f:
         json.dump(episode_master_data, f, indent=4)
 
 

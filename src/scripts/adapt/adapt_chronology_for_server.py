@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 
 # Splits extracted japanese chronology into per-character chronology json files
 # (english chronology doesn't have episode order)
@@ -51,7 +52,7 @@ chronology_file_template = {
 
 
 def generate_character_chronology_json(jp_chronology_json_path, output_folder):
-    chr_entries = []
+    chr_entries: list
 
     with open(jp_chronology_json_path, "r", encoding="UTF-8") as f:
         chr_entries = json.load(f)["m_Entries"]
@@ -120,9 +121,9 @@ def generate_character_chronology_json(jp_chronology_json_path, output_folder):
             chronology_file["Chronologies"][0]["Events"].append(event_entry)
 
             # Save chronology file
-            with open(output_folder + char_id + ".json", "w") as output_file:
+            with open(output_folder / "{}.json".format(char_id), "w") as output_file:
                 json.dump(chronology_file, output_file, indent=4)
 
 
 if __name__ == "__main__":
-    generate_character_chronology_json("./Data list/Chronology JP.json")
+    generate_character_chronology_json("./Data list/Chronology JP.json", "./chronology/")
