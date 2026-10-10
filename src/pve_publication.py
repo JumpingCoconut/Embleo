@@ -35,10 +35,14 @@ class EventPublication:
     The schedule catalog controls visibility; publication does not grant room
     admission, which still uses the separate active-window eligibility gate.
     """
-    def __init__(self, catalog, events, account_event, *, resource_validator=None):
+    def __init__(self, catalog, events, account_event, *, resource_validator=None,
+                 reward_list_provider=None):
         self.catalog = catalog
         self.events = {}
         self.account_event = account_event
+        if reward_list_provider is not None and not callable(reward_list_provider):
+            raise ValueError('Invalid event reward-list provider.')
+        self.reward_list_provider = reward_list_provider
         if resource_validator is not None and not callable(resource_validator):
             raise ValueError('Invalid event resource validator.')
         for event in events:
@@ -77,3 +81,16 @@ class EventPublication:
             if tile not in tiles:
                 tiles.append(tile)
         return result
+
+    def reward_list(self, account, event_id):
+        """Read configured mission rewards, without granting or settling them."""
+        self.selected(account, event_id)
+        if self.reward_list_provider is None:
+            raise RuntimeError('Event mission rewards are not configured.')
+        value = deepcopy(self.reward_list_provider(account, event_id))
+        fields = {'Mission','MissionMaster','GuildMission','GuildMissionMaster'}
+        if (type(value) is not dict or set(value) != fields
+                or any(type(value[field]) is not list
+                       or any(type(row) is not dict for row in value[field]) for field in fields)):
+            raise ValueError('Complete native mission reward collections required.')
+        return value

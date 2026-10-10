@@ -63,6 +63,38 @@ class MultiplayerTests(unittest.TestCase):
             self.assertEqual(self.client.post('/api/pve/list',data=b'\x80').status_code,401)
             self.assertEqual(self.client.get('/api/event/list').status_code,401)
 
+    def test_configured_reward_list_is_scoped_and_has_explicit_native_collections(self):
+        from pve_publication import EventPublication
+        class Catalog:
+            def published_event_ids(self): return ('raid',)
+        rows = {'Mission':[], 'MissionMaster':[], 'GuildMission':[], 'GuildMissionMaster':[]}
+        calls = []
+        def rewards(account, event):
+            calls.append((account,event))
+            return rows
+        publication = EventPublication(Catalog(),[{'EventId':'raid'}],
+            lambda account,event:{'EventId':event},reward_list_provider=rewards)
+        with patch.dict(server.app.config, {'PVE_PUBLICATION':publication}):
+            for token, account in ((self.at,self.alice['id']),(self.bt,self.bob['id'])):
+                response = self.client.get('/api/pve/reward-list?eventId=raid',
+                    headers={'Authorization':token})
+                self.assertEqual(self.unpack(response), rows)
+                self.assertEqual(calls[-1], (account,'raid'))
+            response = publication.reward_list(self.alice['id'],'raid')
+            response['Mission'].append({'changed':True})
+            self.assertEqual(rows['Mission'], [])
+            count = len(calls)
+            self.assertEqual(self.client.get('/api/pve/reward-list?eventId=unknown',
+                headers={'Authorization':self.at}).status_code,400)
+            self.assertEqual(len(calls), count)
+            self.assertEqual(self.client.get('/api/pve/reward-list?eventId=raid').status_code,401)
+            publication.reward_list_provider = None
+            self.assertEqual(self.client.get('/api/pve/reward-list?eventId=raid',
+                headers={'Authorization':self.at}).status_code,503)
+            publication.reward_list_provider = lambda *args:{'Mission':[]}
+            self.assertEqual(self.client.get('/api/pve/reward-list?eventId=raid',
+                headers={'Authorization':self.at}).status_code,400)
+
     def test_configured_raid_home_tile_and_refresh_agree_for_each_account(self):
         from copy import deepcopy
         from pve_publication import EventPublication

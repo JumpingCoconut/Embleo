@@ -692,16 +692,21 @@ def register_multiplayer(app, request_object, pack, user_view, error_response):
     # relay/RPC services for lobby membership and synchronized battle state.
     @app.route("/api/pve/<action>", methods=["GET","POST"])
     def pve_unavailable(action):
-        if action == 'list' and app.config.get('PVE_PUBLICATION') is not None:
+        if action in ('list','reward-list') and app.config.get('PVE_PUBLICATION') is not None:
             if request.method == 'GET' and any(len(values) != 1 for _,values in request.args.lists()):
                 return error_response('Ambiguous event selection.',400)
             data = payload()
             if set(data) != {'EventId'} or type(data['EventId']) is not str:
                 return error_response('Invalid event selection.',400)
             try:
-                return pack({'PveEvent':app.config['PVE_PUBLICATION'].selected(g.account_id,data['EventId'])})
+                publication = app.config['PVE_PUBLICATION']
+                if action == 'reward-list':
+                    return pack(publication.reward_list(g.account_id,data['EventId']))
+                return pack({'PveEvent':publication.selected(g.account_id,data['EventId'])})
             except ValueError:
                 return error_response('Event is not available.',400)
+            except RuntimeError:
+                return error_response('Event rewards temporarily unavailable.',503)
         if action in ("room-list","room-info","create","join","matching","start","end","retire","heart-beat") and app.config.get("PVE_HTTP") is not None:
             if action in ("create","join","matching","start","end","retire","heart-beat") and request.method != "POST":
                 return error_response("Room admission requires POST.",405)

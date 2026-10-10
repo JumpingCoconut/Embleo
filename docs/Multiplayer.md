@@ -1565,3 +1565,18 @@ tables. An HTTP episode ID therefore need not equal the installed layout or
 scenario file name; RaidEpisodeLoader keeps these mappings explicit. This
 trace establishes response-to-cache binding, not successful Android scene
 entry or absence of other global-master requirements.
+
+Android startup refreshes the configured event with GET
+`/api/pve/list?eventId=...`, then GET `/api/pve/reward-list?eventId=...`.
+The event and read-only room routes accept native camelCase query fields;
+room discovery parses Difficulty as a bounded decimal integer. Duplicate
+query values and malformed difficulty reject. MessagePack POST remains
+supported, and room mutations remain POST-only.
+
+PveRewardListResponse contains Mission, MissionMaster, GuildMission and
+GuildMissionMaster arrays. EventPublication.reward_list uses an explicit
+account/event provider after publication and account-state validation,
+returns detached configured collections and performs no settlement or grant.
+An absent provider returns an unavailable response instead of inventing
+missions. The isolated no-reward trial explicitly configures four empty
+collections; production mission and guild reward policy remains separate.
