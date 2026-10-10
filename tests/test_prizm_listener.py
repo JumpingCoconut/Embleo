@@ -304,6 +304,11 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
                     for name in ('alice','bob')))
                 self.assertNotEqual(responses[0]['EpisodeToken'],responses[1]['EpisodeToken'])
                 self.assertEqual(responses[0]['BattleId'],responses[1]['BattleId'])
+                if installed_root is not None:
+                    for response in responses:
+                        visual = response['CharacterDetail']['baseVisual']
+                        self.assertTrue(visual['settings'])
+                        self.assertTrue(visual['characters'])
                 responses[0]['EpisodeDetail']['client-edit'] = True
                 again = await asyncio.to_thread(adapter.start,'alice',request)
                 self.assertNotIn('client-edit',again['EpisodeDetail'])

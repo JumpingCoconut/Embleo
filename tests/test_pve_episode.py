@@ -9,6 +9,22 @@ from pve_episode import RaidEpisodeLoader, raid_enemy_detail
 
 
 class EpisodeLoaderTests(unittest.TestCase):
+    def test_visual_timeline_uses_selected_layout_and_rejects_empty_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            layout = root / 'extract/masterdatadebug/episode/layout'
+            layout.mkdir(parents=True)
+            source = layout / 'EpisodeCheckPointMasterDataObject.json'
+            source.write_text(json.dumps({'Datas':[
+                dict(_startScenarioNo=20,PartyVisualIds=['later']),
+                dict(_startScenarioNo=0,PartyVisualIds=['','',''])]}),encoding='utf-8')
+            loader = RaidEpisodeLoader(root,{'raid':dict(LayoutId='layout')})
+            self.assertEqual(loader.visual_settings('raid'),[
+                dict(ScenarioNo=0,Ids=['','','']),dict(ScenarioNo=20,Ids=['later'])])
+            source.write_text('{"Datas":[]}',encoding='utf-8')
+            with self.assertRaises(ValueError):
+                loader.visual_settings('raid')
+
     def test_difficulty_individual_override_preserves_spawn_and_updates_enemy_detail(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as directory:

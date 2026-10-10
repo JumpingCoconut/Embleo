@@ -120,8 +120,16 @@ def installed_battle_assembler(data_root, database, ordering, definitions,
     snapshots = SnapshotCombatStats(calculator,database,ordering,
                                    tuple(dict.fromkeys(('UserItems.json',*extra_saves))))
     presentation = PartyCharacterPresentation(characters,[row['EquipmentId'] for row in equipment],equipment)
-    responses = InstalledBattleResponses(characters,base_visuals,group,
-                                         RaidEpisodeLoader(root,definitions))
+    loader = RaidEpisodeLoader(root,definitions)
+    base_visuals = deepcopy(base_visuals)
+    if not base_visuals.get('characters'):
+        base_visuals['characters'] = load('EpisodeCharacterVisualMasterData.json')
+    def visuals(episode_id):
+        result = deepcopy(base_visuals)
+        if not result.get('settings'):
+            result['settings'] = loader.visual_settings(episode_id)
+        return result
+    responses = InstalledBattleResponses(characters,visuals,group,loader)
     return BattleAssembler(snapshots,presentation,responses,level_overrides)
 
 
@@ -214,7 +222,8 @@ class InstalledBattleResponses:
             'userCharacters':prepared.save(account,'UserCharacter.json'),
             'userEquipments':prepared.save(account,'UserEquipment.json'),
             'userItems':prepared.save(account,'UserItems.json'),
-            'baseVisual':deepcopy(self.visuals),
+            'baseVisual':deepcopy(self.visuals(room['EpisodeId'])
+                                  if callable(self.visuals) else self.visuals),
         }
         installed['EpisodeDetailUser']['playCharacters'] = [deepcopy(play)]
         return installed | {'EpisodeToken':secrets.token_hex(32),

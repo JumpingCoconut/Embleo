@@ -30,6 +30,26 @@ class RaidEpisodeLoader:
         self.root = Path(data_root).resolve()
         self.definitions = deepcopy(definitions)
 
+    def visual_settings(self, episode_id):
+        """Use checkpoint visual timelines; the native client requires a first row."""
+        definition = self.definitions[episode_id]
+        directory = self.root / 'extract/masterdatadebug/episode'
+        layout = (directory / definition['LayoutId']).resolve()
+        if layout.parent != directory.resolve():
+            raise ValueError('Raid layout must be a direct installed directory.')
+        with (layout / 'EpisodeCheckPointMasterDataObject.json').open(encoding='utf-8-sig') as stream:
+            entries = json.load(stream)['Datas']
+        settings = []
+        for entry in entries:
+            number, ids = entry['_startScenarioNo'], entry['PartyVisualIds']
+            if (type(number) is not int or number < 0 or type(ids) is not list
+                    or any(type(value) is not str for value in ids)):
+                raise ValueError('Invalid installed raid visual setting.')
+            settings.append(dict(ScenarioNo=number, Ids=deepcopy(ids)))
+        if not settings:
+            raise ValueError('Installed raid visual settings must not be empty.')
+        return sorted(settings, key=lambda row: row['ScenarioNo'])
+
     def __call__(self, episode_id):
         if type(episode_id) is not str or episode_id not in self.definitions:
             raise ValueError('Raid episode is not installed in the catalog.')
