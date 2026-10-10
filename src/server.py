@@ -38,7 +38,7 @@ DISABLE_CHALLENGE_MISSIONS = True
 
 DISABLE_SCENARIOS = False
 
-SKIP_BATTLES = False
+SKIP_BATTLES = True
 SKIP_VIDEOS = False
 SKIP_ROUTE_FORK_MERGE = False
 
@@ -69,10 +69,13 @@ time_variable = time.time()
 @app.after_request
 def finish_account_request(response):
 
-	account_token: str
+	account_token = ""
 
-	with open("./account_token.txt", "r") as f:
-		account_token = f.read()
+	account_token_path = "./account_token.txt"
+
+	if does_file_exist(account_token_path):
+		with open(account_token_path, "r") as f:
+			account_token = f.read()
 
 	response.headers["Authorization"] = "Bearer " + account_token
 
