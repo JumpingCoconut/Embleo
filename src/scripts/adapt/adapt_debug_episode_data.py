@@ -117,6 +117,12 @@ def fill_episode_layout_group_by_episode_id(episode_id, *, data_root=None, layou
             if group_name == "Gimmicks":
                 LayoutGroup[group_name] = adapt_function(master_data,
                     location_episode_id or episode_id, data_root=data_root)
+            elif group_name == "Enemies":
+                from pathlib import Path
+                platoons_path = (Path(data_root or './data') /
+                    'extract/masterdatadebug/PlatoonMasterDataObject.json')
+                LayoutGroup[group_name] = adapt_function(master_data,
+                    platoon_master_data=load_json(platoons_path))
             else:
                 LayoutGroup[group_name] = adapt_function(master_data)
 

@@ -13,10 +13,11 @@ GROUPS = {1:'CheckPoints',2:'ArrivalPoints',3:'Kills',4:'Talks',5:'Gimmicks',
 
 
 def raid_enemy_detail(layout):
-    """Match the episode start envelope's own and child enemy references."""
+    """Include placed, child and summon-only enemy individuals for battle."""
     ids = []
     for enemy in layout['Enemies']:
-        for key in [enemy['EnemyId'], *enemy.get('Child', {}).get('Ids', [])]:
+        for key in [enemy['EnemyId'], *enemy.get('Child', {}).get('Ids', []),
+                    enemy.get('SummonRule', {}).get('EpisodeEnemyId', '')]:
             if type(key) is not str:
                 raise ValueError('Invalid installed raid enemy reference.')
             if key and key not in ids:

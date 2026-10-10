@@ -16,8 +16,25 @@ def SerVec3toVec3(SerializableVector3):
 
 	return vector_3
 
-def adapt_episode_enemies_for_episode_layout(master_data):
+def episode_enemy_individual_ids(master_data):
+	"""All placed, parent-child and generator individuals, in source order."""
+	ids = []
+	seen = set()
+	for entry in master_data["Datas"]:
+		candidates = [entry["_individualID"],
+			*entry["_childEnemyData"]["EnemyIds"],
+			entry["_summonEnemyData"]["EnemyId"]]
+		for individual_id in candidates:
+			if individual_id and individual_id not in seen:
+				seen.add(individual_id)
+				ids.append(individual_id)
+	return ids
+
+
+def adapt_episode_enemies_for_episode_layout(master_data, *, platoon_master_data=None):
 	enemies = []
+	formations = {entry["_id"]: entry
+		for entry in (platoon_master_data or {"Datas": []})["Datas"]}
 
 	# yeah, that's a lot of data
 	for entry in master_data["Datas"]:
@@ -52,10 +69,16 @@ def adapt_episode_enemies_for_episode_layout(master_data):
 		}
 
 		# EpisodeEnemyChild
+		formation_id = entry["_childEnemyData"]["FormationId"]
+		formation = formations.get(formation_id)
+		if formation_id and formation is None:
+			raise ValueError("Unknown platoon formation {!r} for episode enemy {!r}".format(
+				formation_id, entry["_id"]))
 		layout_entry["Child"] = {
 			"Ids": entry["_childEnemyData"]["EnemyIds"],
-			"Formation": entry["_childEnemyData"]["FormationId"],
-			# "FormationPadding": SerVec2toVec2({"x": 0, "y": 0})
+			"Formation": formation["Formation"] if formation else "",
+			"FormationPadding": SerVec2toVec2(formation["FormationPadding"])
+				if formation else [0, 0]
 		}
 
 		# EpisodeEnemySummonRule

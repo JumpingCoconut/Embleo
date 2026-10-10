@@ -63,12 +63,15 @@ class EpisodeLoaderTests(unittest.TestCase):
             self.assertEqual(adapt_gimmicks_for_episode_layout({'Datas':[]},'raid',data_root=root),[])
 
     def test_enemy_detail_includes_children_without_empty_or_duplicate_ids(self):
-        layout = {'Enemies':[{'EnemyId':'boss','Child':{'Ids':['child','', 'boss']}},
+        layout = {'Enemies':[{'EnemyId':'boss','Child':{'Ids':['child','', 'boss']},
+                              'SummonRule':{'EpisodeEnemyId':'summon-only'}},
                               {'EnemyId':'child','Child':{'Ids':[]}}]}
         self.assertEqual(raid_enemy_detail(layout),
-                         {'Enemies':[{'EnemyId':'boss'},{'EnemyId':'child'}]})
+                         {'Enemies':[{'EnemyId':'boss'},{'EnemyId':'child'},{'EnemyId':'summon-only'}]})
         with self.assertRaises(ValueError):
             raid_enemy_detail({'Enemies':[{'EnemyId':True}]})
+        with self.assertRaises(ValueError):
+            raid_enemy_detail({'Enemies':[{'EnemyId':'boss','SummonRule':{'EpisodeEnemyId':True}}]})
 
     def test_distinct_scenario_and_layout_mapping_preserves_combat_and_order(self):
         with tempfile.TemporaryDirectory() as directory:
