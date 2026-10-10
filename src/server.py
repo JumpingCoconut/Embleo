@@ -27,6 +27,7 @@ import msgpack
 from flask import Flask, Response, request
 
 from scripts.adapt.adapt_debug_episode_data import fill_episode_layout_group_by_episode_id
+from scripts.adapt.episode_data.enemies import episode_enemy_individual_ids
 
 # from server_scripts.challenge_mission.challenge_mission import challenge_mission
 
@@ -492,7 +493,6 @@ def fill_episode_detail_by_episode_id(episode_id):
 
 
 def fill_enemy_detail_by_episode_id(episode_id):
-	from scripts.adapt.episode_data.enemies import episode_enemy_individual_ids
 	episode_enemy_data = load_json(
 		episode_master_data_path_format.format(episode_id) + "EpisodeEnemyMasterDataObject.json")
 	return {"Enemies": [{"EnemyId": individual_id}
