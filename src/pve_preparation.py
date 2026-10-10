@@ -40,7 +40,7 @@ class PreparedEnemySpawns:
         response = room['PreparedBattle'][account]
         layout = response['EpisodeDetail']['LayoutGroup']['Enemies']
         root_individuals = {row['EpisodeEnemyId']:row['EnemyId'] for row in layout}
-        root_children = {row['EpisodeEnemyId']:row.get('Child', {}).get('Ids', []) for row in layout}
+        root_children = {row['EpisodeEnemyId']:(row.get('Child') or {}).get('Ids', []) for row in layout}
         individuals = {}
         for row in response['MasterGroup']['enemyIndividuals']:
             key = row.get('Index') if type(row) is dict else None

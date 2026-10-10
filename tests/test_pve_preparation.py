@@ -9,6 +9,18 @@ from pve_stats import PreparedCombatStats, PartyCharacterPresentation
 
 
 class AssemblyTests(unittest.TestCase):
+    def test_external_enemy_definitions_with_null_children_keep_spawn_authorization(self):
+        room = dict(Players=[dict(UserId='alice',IsHost=True)],
+            PreparedBattle={'alice':dict(EpisodeDetail={'LayoutGroup':{'Enemies':[
+                dict(EpisodeEnemyId='generator',EnemyId='boss',Child={'Ids':[]}),
+                dict(EpisodeEnemyId='Ext.generator.minion',EnemyId='minion',Child=None)]}},
+                MasterGroup={'enemyIndividuals':[dict(Index='boss'),dict(Index='minion')]})})
+        policy = PreparedEnemySpawns()
+        self.assertTrue(policy.authorize('alice',room,'generator'))
+        self.assertTrue(policy.authorize('alice',room,'Ext.generator.minion'))
+        self.assertFalse(policy.authorize('alice',room,'Ext.generator.unknown'))
+        self.assertFalse(policy.authorize('alice',room,'Ext.Ext.generator.minion.minion'))
+
     def test_dynamic_enemy_identity_requires_declared_links_and_host(self):
         policy = PreparedEnemySpawns()
         individuals = [dict(Index='boss',TransformConditions=1,TransformId='phase2',
