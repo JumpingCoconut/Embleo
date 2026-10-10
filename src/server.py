@@ -69,10 +69,13 @@ time_variable = time.time()
 @app.after_request
 def finish_account_request(response):
 
-	account_token: str
+	account_token = ""
 
-	with open("./account_token.txt", "r") as f:
-		account_token = f.read()
+	account_token_path = "./account_token.txt"
+
+	if does_file_exist(account_token_path):
+		with open(account_token_path, "r") as f:
+			account_token = f.read()
 
 	response.headers["Authorization"] = "Bearer " + account_token
 
@@ -187,6 +190,21 @@ def provision():
 #			EPISODE
 ########################
 
+secret_mission_base_scenario = [
+    {
+        "Id": "00001",
+        "ScenarioNo": 1,
+        "ProgressType": 1,
+        "Progress": {
+            "ProgressCheckPointId": "00001",
+            "LayoutCheckPointId": "CP_00001",
+            "RequestSave": True,
+            "IsReload": True,
+            "IsDarkenRestart": True,
+            "Progress": []
+        }
+    }
+]
 
 @app.route("/api/episode/list", methods=["GET", "POST"])
 def episode_list():
@@ -278,7 +296,10 @@ def fill_scenario_group_from_adapted_scenario(episode_id):
 		"MiniGames": []
 	}
 
-	adapted_episode_scenario = load_json("./data/masterdata/scenario/{0}.json".format(episode_id))
+	if "sc" in episode_id:
+		adapted_episode_scenario = secret_mission_base_scenario
+	else:
+		adapted_episode_scenario = load_json("./data/masterdata/scenario/{0}.json".format(episode_id))
 
 	for entry in adapted_episode_scenario:
 		ProgressType = entry["ProgressType"]
@@ -405,7 +426,10 @@ skip_scenario = []
 def fill_scenario_list_from_adapted_scenario(episode_id):
 	scenarios = []
 
-	adapted_episode_scenario = load_json("./data/masterdata/scenario/{0}.json".format(episode_id))
+	if "sc" in episode_id:
+		adapted_episode_scenario = secret_mission_base_scenario
+	else:
+		adapted_episode_scenario = load_json("./data/masterdata/scenario/{0}.json".format(episode_id))
 
 	for entry in adapted_episode_scenario:
 		new_scenario_entry = {
@@ -491,6 +515,21 @@ def fill_episode_detail_by_episode_id(episode_id):
 	return EpisodeDetail
 
 
+def get_all_enemy_individual_ids(enemy_master_data):
+	individual_id_list = set()  # Set for speed
+
+	for entry in enemy_master_data["Datas"]:
+		entry_ids = [entry["_individualID"],
+			*entry["_childEnemyData"]["EnemyIds"],
+			entry["_summonEnemyData"]["EnemyId"]]
+
+		for individual_id in entry_ids:
+			if (individual_id != "") and (individual_id not in individual_id_list):
+				individual_id_list.add(individual_id)
+
+	return list(individual_id_list)
+
+
 def fill_enemy_detail_by_episode_id(episode_id):
 	enemy_detail = {
 		"Enemies": []
@@ -499,28 +538,17 @@ def fill_enemy_detail_by_episode_id(episode_id):
 	episode_enemy_data = load_json(
 		episode_master_data_path_format.format(episode_id) + "EpisodeEnemyMasterDataObject.json")
 
-	for enemy in episode_enemy_data["Datas"]:
-		master_enemy_id = enemy["_individualID"]
+	individual_enemy_ids = get_all_enemy_individual_ids(episode_enemy_data)
+
+	for individual_id in individual_enemy_ids:
 		new_entry = {
-			"EnemyId": master_enemy_id
+			"EnemyId": individual_id
 		}
 
 		if new_entry not in enemy_detail["Enemies"]:
+			enemy_detail["Enemies"].append(new_entry)
 
-			if master_enemy_id != "":
-				enemy_detail["Enemies"].append(new_entry)
-
-		if len(enemy["_childEnemyData"]["EnemyIds"]) > 0:
-			for child_enemy_id in enemy["_childEnemyData"]["EnemyIds"]:
-				new_entry = {
-					"EnemyId": child_enemy_id
-				}
-
-				if new_entry not in enemy_detail["Enemies"]:
-					if child_enemy_id != "":
-						enemy_detail["Enemies"].append(new_entry)
-
-	# print("Enemy count", len(start_data["EnemyDetail"]["Enemies"]))
+	# print("Enemy count", enemy_detail)
 
 	return enemy_detail
 
@@ -1072,6 +1100,7 @@ def fill_episode_character_detail():
 		"./data/masterdata/EpisodeCharacterVisualMasterData.json")
 
 	return character_detail
+
 
 
 @app.route("/api/secret-mission/start", methods=["GET", "POST"])
