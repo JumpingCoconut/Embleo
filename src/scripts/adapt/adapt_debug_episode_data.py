@@ -75,7 +75,8 @@ layout_parts = [
 ]
 
 
-def fill_episode_layout_group_by_episode_id(episode_id):
+def fill_episode_layout_group_by_episode_id(episode_id, *, data_root=None, layout_id=None,
+                                          location_episode_id=None):
     LayoutGroup = {
         "Breakables": [],
         "CheckPoints": [],
@@ -93,6 +94,13 @@ def fill_episode_layout_group_by_episode_id(episode_id):
 
     # episode_master_data_path = "./data/masterdata/episode/{0}/".format(episode_id)
     episode_master_data_path = "./data/extract/masterdatadebug/episode/{0}/".format(episode_id)  # Use unadapted data for now
+    if data_root is not None:
+        from pathlib import Path
+        root = (Path(data_root) / 'extract/masterdatadebug/episode').resolve()
+        target = (root / (layout_id or episode_id)).resolve()
+        if target.parent != root:
+            raise ValueError('Episode layout must be a direct installed directory.')
+        episode_master_data_path = str(target) + os.sep
 
     # Get a list of files in the relevant episode data folder
     episode_master_data_path_files = os.listdir(episode_master_data_path)
@@ -107,7 +115,8 @@ def fill_episode_layout_group_by_episode_id(episode_id):
             master_data = load_json(episode_master_data_path + file_name)
 
             if group_name == "Gimmicks":
-                LayoutGroup[group_name] = adapt_function(master_data, episode_id)
+                LayoutGroup[group_name] = adapt_function(master_data,
+                    location_episode_id or episode_id, data_root=data_root)
             else:
                 LayoutGroup[group_name] = adapt_function(master_data)
 

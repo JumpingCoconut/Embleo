@@ -325,6 +325,37 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(self.saved(alice, "checkpoint.txt"), {})
         self.assertEqual(self.saved(bob, "checkpoint.txt"), {"pl001_ep001": 20000})
 
+    def test_episode_menu_resume_flag_tracks_edited_checkpoint_without_save_writes(self):
+        rows = [{'EpisodeId': 'one', 'Status': 2},
+                {'EpisodeId': 'two', 'Status': 32768 | 65536 | 1}]
+        def read(path):
+            return {'one': 20000} if path == server.FAKE_CHECKPOINT_PATH else rows
+        with patch.object(server, 'load_json', side_effect=read), \
+                patch.object(server, 'does_file_exist', return_value=True):
+            result = server.episode_menu_users()
+        self.assertEqual(result, [{'EpisodeId': 'one', 'Status': 32770},
+                                  {'EpisodeId': 'two', 'Status': 65537}])
+        self.assertEqual(rows[0]['Status'], 2)
+        self.assertEqual(rows[1]['Status'], 32768 | 65536 | 1)
+
+    def test_edited_checkpoint_updates_authenticated_episode_list_only_for_owner(self):
+        alice, token = self.register()
+        bob, bob_token = self.register('Bob')
+        store = AccountStore(self.db)
+        try:
+            store.write(alice['id'], 'checkpoint.txt', {'pl001_ep001': 20000})
+            store.connection.commit()
+        finally:
+            store.close()
+        before = self.saved(alice, 'UserEpisode.json')
+        for auth, expected in ((token, 32768), (bob_token, 0)):
+            response = self.unpack(self.post('/api/episode/list', token=auth))
+            entry = next(row for row in response['episodeUsers'] if row['EpisodeId'] == 'pl001_ep001')
+            self.assertEqual(entry['Status'], expected)
+        self.assertEqual(self.saved(alice, 'UserEpisode.json'), before)
+        self.assertEqual(self.saved(alice, 'checkpoint.txt'), {'pl001_ep001': 20000})
+        self.assertEqual(self.saved(bob, 'checkpoint.txt'), {})
+
     def test_concurrent_requests_do_not_lose_checkpoint_updates(self):
         user, token = self.register()
         def save(episode):

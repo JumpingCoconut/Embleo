@@ -692,6 +692,34 @@ def register_multiplayer(app, request_object, pack, user_view, error_response):
     # relay/RPC services for lobby membership and synchronized battle state.
     @app.route("/api/pve/<action>", methods=["GET","POST"])
     def pve_unavailable(action):
+        if action == 'list' and app.config.get('PVE_PUBLICATION') is not None:
+            data = request_object()
+            if set(data) != {'EventId'} or type(data['EventId']) is not str:
+                return error_response('Invalid event selection.',400)
+            try:
+                return pack({'PveEvent':app.config['PVE_PUBLICATION'].selected(g.account_id,data['EventId'])})
+            except ValueError:
+                return error_response('Event is not available.',400)
+        if action in ("room-list","room-info","create","join","matching","start","end","retire","heart-beat") and app.config.get("PVE_HTTP") is not None:
+            if action in ("create","join","matching","start","end","retire","heart-beat") and request.method != "POST":
+                return error_response("Room admission requires POST.",405)
+            try:
+                adapter = app.config["PVE_HTTP"]
+                handler = {"room-list":adapter.room_list,"room-info":adapter.room_info,
+                           "create":adapter.create,"join":adapter.join,
+                           "matching":adapter.matching,"start":adapter.start,
+                           "end":adapter.end,"retire":adapter.retire,"heart-beat":adapter.heart_beat}[action]
+                data = request_object()
+                # Authentication only read this transaction. Every adapter
+                # submission waits on the same listener loop; an overlapping
+                # completion may need its own account write transaction there.
+                # Release this lock before any listener-bound handler waits.
+                g.account_store.connection.rollback()
+                return pack(handler(g.account_id,data))
+            except ValueError:
+                return error_response("Invalid or unavailable room discovery.",400)
+            except (RuntimeError, TimeoutError):
+                return error_response("Room discovery temporarily unavailable.",503)
         if action in ("room-list","get-recently-matching"):
             return pack({"Rooms": []} if action == "room-list" else {"Users": []})
         if action not in ("list","create","join","start","end","retire","matching","modify",
@@ -699,6 +727,11 @@ def register_multiplayer(app, request_object, pack, user_view, error_response):
                           "character-ranking-result","character-ranking-reward-list","select-ranking-character"):
             return error_response("Unknown co-op route.",404)
         return error_response("Co-op raids require the unimplemented Prizm transport and event data.",501)
+
+    @app.route('/api/event/list', methods=['GET','POST'])
+    def configured_event_list():
+        publication = app.config.get('PVE_PUBLICATION')
+        return pack({'Events':publication.event_list() if publication is not None else []})
 
     # Flask's catch-all otherwise returns static success fixtures on GET to a
     # mutation. Register an explicit 405 handler for every social mutation.

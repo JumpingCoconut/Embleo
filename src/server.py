@@ -29,6 +29,8 @@ from flask import Flask, Response, g, has_request_context, request, url_for
 from accounts import AccountError, AccountStore, decode_icon, default_saves, save_key
 from profiles import add_all_emblems, noble_dates, utc_date
 from multiplayer import SocialStore, register_multiplayer
+from health import database_ready
+import sqlite3
 
 from scripts.adapt.adapt_debug_episode_data import fill_episode_layout_group_by_episode_id
 
@@ -76,6 +78,17 @@ PUBLIC_API_PATHS = frozenset({
 	"/api/user/get-bnid-migration-info", "/api/user/bnid-migration",
 	"/api/user/get-migration-info", "/api/user/login-migration",
 })
+
+
+@app.route('/healthz', methods=['GET'])
+def readiness():
+	try:
+		database_ready(app.config['ACCOUNT_DB'])
+	except (sqlite3.Error, OSError):
+		return Response('{"online":false}', status=503,
+			content_type='application/json', headers={'Cache-Control':'no-store'})
+	return Response('{"online":true}', content_type='application/json',
+		headers={'Cache-Control':'no-store'})
 
 
 @app.before_request
@@ -225,6 +238,22 @@ def load_json(path):
 		path = BASE_DIR / path
 	with open(path, "r", encoding='utf-8') as f:
 		return json.load(f)
+
+
+def episode_menu_users():
+	# Checkpoint edits must be reflected in menu resume flags without rewriting
+	# the account's completion/unlock state or its stored episode records.
+	users = load_json("./data/user/UserEpisode.json")
+	checkpoints = load_json(FAKE_CHECKPOINT_PATH) if does_file_exist(FAKE_CHECKPOINT_PATH) else {}
+	from copy import deepcopy
+	users = deepcopy(users)
+	if not isinstance(checkpoints, dict):
+		return users
+	for entry in users:
+		scenario = checkpoints.get(entry["EpisodeId"])
+		if type(entry.get("Status")) is int:
+			entry["Status"] = (entry["Status"] & ~32768) | (32768 if type(scenario) is int and scenario > 0 else 0)
+	return users
 
 
 def save_json(path, data):
@@ -493,7 +522,7 @@ def market_list():
 def episode_list():
 	episode_data = {
 		"episodes": load_json("./data/masterdata/EpisodeMasterData.json"),
-		"episodeUsers": load_json("./data/user/UserEpisode.json")
+		"episodeUsers": episode_menu_users()
 	}
 
 	return pack_json_response(episode_data)
@@ -1346,7 +1375,7 @@ def chronology_list():
 	'''
 
 	chronology_data["episodes"] = load_json("./data/masterdata/EpisodeMasterData.json")
-	chronology_data["episodeUsers"] = load_json("./data/user/UserEpisode.json")
+	chronology_data["episodeUsers"] = episode_menu_users()
 
 	return pack_json_response(chronology_data)
 
@@ -1650,7 +1679,7 @@ def top():
 	top_data["character"] = load_json("./data/user/UserCharacter.json")
 	top_data["equipment"] = load_json("./data/user/UserEquipment.json")
 	top_data["item"] = load_json("./data/user/UserItems.json")
-	top_data["episodeUsers"] = load_json("./data/user/UserEpisode.json")
+	top_data["episodeUsers"] = episode_menu_users()
 
 	top_data["parameter"] = load_json("./data/user/UserParameter.json")
 	top_data["hcBalance"] = load_json("./data/user/HcBalance.json")
@@ -1662,6 +1691,9 @@ def top():
 		IsNewGuildMessage=social.guild_unread())
 
 	top_data["characterMaster"] = load_json("./data/masterdata/CharacterMasterData.json")
+	publication = app.config.get("PVE_PUBLICATION")
+	if publication is not None:
+		top_data = publication.apply_top(g.account_id, top_data)
 	add_all_emblems(top_data, BASE_DIR / "data/extract/manifest.json")
 	top_data["equipmentMaster"] = load_json("./data/masterdata/EquipmentMasterData.json")
 	top_data["itemMaster"] = load_json("./data/masterdata/ItemMasterData.json")
@@ -2106,4 +2138,10 @@ if __name__ == "__main__":
 	
 	# print("Current Working Directory:", os.getcwd())
 	
-	app.run(host="0.0.0.0", port=5001, debug=True)
+	# Private operator configuration supplies installed providers and TLS.
+	# Importing this module for tests never starts a transport listener.
+	pve_config = os.environ.get("EMBLEO_PVE_CONFIG")
+	if pve_config:
+		app.config.from_pyfile(str(Path(pve_config).resolve()))
+	from prizm_host import run_http
+	run_http(app, host="0.0.0.0", port=5001, debug=True)

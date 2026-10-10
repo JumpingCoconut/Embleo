@@ -42,6 +42,192 @@ class MultiplayerTests(unittest.TestCase):
     def view(self,target,token=None):
         return self.call("user/other-user-info",{"userIdInfo": [target]},token)["UserViews"][0]
 
+    def test_configured_event_refresh_is_authenticated_and_account_scoped(self):
+        from pve_publication import EventPublication
+        class Catalog:
+            def published_event_ids(self): return ('raid',)
+        publication = EventPublication(Catalog(),[{'EventId':'raid'}],
+            lambda account,event:{'EventId':event,'EpisodeUsers':[{'owner':account}]})
+        with patch.dict(server.app.config,{'PVE_PUBLICATION':publication}):
+            self.assertEqual(self.call('event/list'), {'Events':[{'EventId':'raid'}]})
+            for token,account in ((self.at,self.alice['id']),(self.bt,self.bob['id'])):
+                value = self.call('pve/list',{'eventId':'raid'},token)
+                self.assertEqual(value['PveEvent']['EpisodeUsers'][0]['owner'],account)
+            self.assertEqual(self.post('/api/pve/list',{'eventId':'unknown'},token=self.at).status_code,400)
+            self.assertEqual(self.post('/api/pve/list',{'eventId':'raid','userId':self.bob['id']},token=self.at).status_code,400)
+            self.assertEqual(self.client.post('/api/pve/list',data=b'\x80').status_code,401)
+            self.assertEqual(self.client.get('/api/event/list').status_code,401)
+
+    def test_configured_raid_home_tile_and_refresh_agree_for_each_account(self):
+        from copy import deepcopy
+        from pve_publication import EventPublication
+        class Catalog:
+            visible = ('raid',)
+            def published_event_ids(self): return self.visible
+        catalog = Catalog()
+        publication = EventPublication(catalog,[{'EventId':'raid','Type':1}],
+            lambda account,event:dict(EventId=event,EpisodeUsers=[{'owner':account}]))
+        original_load = server.load_json
+        source = dict(orderdIds=[{'MasterDataId':'story','Type':1}],events=[],pveEvents=[])
+        def load(path):
+            if path == './offline_responses/api/user/top.json': return deepcopy(source)
+            if path.startswith('./data/masterdata/'): return []
+            return original_load(path)
+        with patch.dict(server.app.config,{'PVE_PUBLICATION':publication}), \
+                patch('server.load_json',side_effect=load), \
+                patch('server.top_add_episodes',return_value=[]), \
+                patch('server.top_add_equipment',return_value=[]), \
+                patch('server.top_add_characters',return_value=[]), \
+                patch('server.add_all_emblems'):
+            for token,account in ((self.at,self.alice['id']),(self.bt,self.bob['id'])):
+                top = self.call('user/top',token=token)
+                self.assertEqual(top['events'],self.call('event/list',token=token)['Events'])
+                self.assertEqual(top['pveEvents'][0],self.call('pve/list',{'eventId':'raid'},token)['PveEvent'])
+                self.assertEqual(top['pveEvents'][0]['EpisodeUsers'][0]['owner'],account)
+                self.assertEqual(top['orderdIds'].count({'MasterDataId':'raid','Type':3}),1)
+                self.assertIn({'MasterDataId':'story','Type':1},top['orderdIds'])
+            catalog.visible = ()
+            hidden = self.call('user/top')
+            self.assertEqual(hidden['events'],[])
+            self.assertEqual(hidden['pveEvents'],[])
+            self.assertNotIn({'MasterDataId':'raid','Type':3},hidden['orderdIds'])
+            self.assertEqual(self.call('event/list'),{'Events':[]})
+            self.assertEqual(self.post('/api/pve/list',{'eventId':'raid'},token=self.at).status_code,400)
+
+    def test_configured_room_discovery_receives_authenticated_identity(self):
+        from pve_http import PveHttp
+        from concurrent.futures import Future
+        from unittest.mock import Mock
+        future = Future()
+        future.set_result([{'RoomId':'room'}])
+        control = Mock()
+        control.submit.return_value = future
+        with patch.dict(server.app.config,{'PVE_HTTP':PveHttp(control)}):
+            result = self.call('pve/room-list',{'eventId':'event','difficulty':2,'pveVersion':'v'})
+            self.assertEqual(result,{'Rooms':[{'RoomId':'room'}]})
+            control.submit.assert_called_once_with('discover_event',self.alice['id'],'event',2,'v')
+            control.reset_mock()
+            info = Future()
+            info.set_result({'RoomId':'room'})
+            control.submit.return_value = info
+            self.assertEqual(self.call('pve/room-info',{'eventId':'event','roomId':'room','pveVersion':'v'}),
+                             {'Room':{'RoomId':'room'}})
+            control.submit.assert_called_once_with('info_event',self.alice['id'],'event','room','v')
+            control.reset_mock()
+            admission = Future()
+            admission.set_result({'Prizm':{'RoomId':'created'}})
+            control.submit.return_value = admission
+            self.assertEqual(self.call('pve/create',{'episodeId':'ep','publicLevel':1,'pveVersion':'v'}),
+                             {'Prizm':{'RoomId':'created'}})
+            control.submit.assert_called_once_with('create_http',self.alice['id'],'ep','v',1)
+            self.assertEqual(self.client.get('/api/pve/create',headers={'Authorization':self.at}).status_code,405)
+            control.reset_mock()
+            self.assertEqual(self.call('pve/join',{'roomId':'room','joinRoute':3,'pveVersion':'v'}),
+                             {'Prizm':{'RoomId':'created'}})
+            control.submit.assert_called_once_with('join_http',self.alice['id'],'room','v',3)
+            control.reset_mock()
+            matching = Future()
+            matching.set_result({'Rooms':[],'Prizm':None,'RetryRequest':True,
+                                 'RetryCount':3,'RetryInterval':1000})
+            control.submit.return_value = matching
+            result = self.call('pve/matching',{'eventId':'event','difficulty':2,
+                                             'pveVersion':'v','maxPower':'999999'})
+            self.assertTrue(result['RetryRequest'])
+            control.submit.assert_called_once_with('matching_http',self.alice['id'],'event',2,'v')
+            control.reset_mock()
+            start = Future()
+            start.set_result({'EpisodeToken':'member-token','BattleId':'battle'})
+            control.submit.return_value = start
+            result = self.call('pve/start',{'episodeId':'ep','characterId':'pl001',
+                                          'memberIds':[self.alice['id'],None,None,None],
+                                          'memberCharacterIds':['pl001']})
+            self.assertEqual(result['EpisodeToken'],'member-token')
+            control.submit.assert_called_once_with('start_http',self.alice['id'],'ep','pl001',
+                                                   [self.alice['id']],['pl001'])
+            control.reset_mock()
+            for action in ('join','matching','start'):
+                self.assertEqual(self.client.get('/api/pve/'+action,headers={'Authorization':self.at}).status_code,405)
+                self.assertEqual(self.post('/api/pve/'+action,{},token=self.at).status_code,400)
+                self.assertEqual(self.post('/api/pve/'+action,{}).status_code,401)
+            self.assertEqual(self.post('/api/pve/room-list',{'eventId':'event','difficulty':True,'pveVersion':'v'},token=self.at).status_code,400)
+            self.assertEqual(self.client.post('/api/pve/room-list',data=b'').status_code,401)
+            control.submit.assert_not_called()
+
+    def test_configured_http_completion_uses_authenticated_account_and_post(self):
+        from pve_http import PveHttp
+        from concurrent.futures import Future
+        from unittest.mock import Mock
+        control = Mock()
+        future = Future()
+        future.set_result({'Result':{}})
+        control.submit.return_value = future
+        with patch.dict(server.app.config,{'PVE_HTTP':PveHttp(control)}):
+            for action,retire in (('end',False),('retire',True)):
+                data = dict(episodeToken='token',playlog='opaque')
+                expected = dict(EpisodeToken='token',Playlog='opaque')
+                if not retire:
+                    data['resultHash'] = 'hash'
+                    expected['ResultHash'] = 'hash'
+                control.reset_mock()
+                self.assertEqual(self.call('pve/'+action,data,self.bt),{'Result':{}})
+                control.submit.assert_called_once_with('complete_http',self.bob['id'],expected,retire)
+                self.assertEqual(self.post('/api/pve/'+action,data | {'userId':self.alice['id']},token=self.bt).status_code,400)
+                self.assertEqual(self.client.get('/api/pve/'+action,headers={'Authorization':self.bt}).status_code,405)
+
+    def test_completion_writer_can_commit_while_http_waits_and_activity_survives(self):
+        import json
+        from pve_http import PveHttp
+        from unittest.mock import Mock
+        before = self.saved(self.alice,'UserParameter.json')
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            def write_result(account):
+                with closing(sqlite3.connect(self.db,timeout=0.2)) as database:
+                    database.execute('BEGIN IMMEDIATE')
+                    row = database.execute('SELECT value FROM saves WHERE account_id=? AND name=?',
+                        (account,'UserParameter.json')).fetchone()
+                    value = json.loads(row[0])
+                    value['completion_test'] = value.get('completion_test',0)+1
+                    database.execute('UPDATE saves SET value=? WHERE account_id=? AND name=?',
+                        (json.dumps(value),account,'UserParameter.json'))
+                    database.commit()
+                return {'Result':{}}
+            control = Mock()
+            control.submit.side_effect = lambda operation,account,*args:executor.submit(write_result,account)
+            with patch.dict(server.app.config,{'PVE_HTTP':PveHttp(control)}):
+                for action in ('end','retire'):
+                    data = dict(episodeToken='token',playlog='opaque')
+                    if action == 'end': data['resultHash'] = 'hash'
+                    self.assertEqual(self.call('pve/'+action,data,self.bt),{'Result':{}})
+        self.assertEqual(self.saved(self.bob,'UserParameter.json')['completion_test'],2)
+        self.assertEqual(self.saved(self.alice,'UserParameter.json'),before)
+        with closing(sqlite3.connect(self.db)) as database:
+            self.assertIsNotNone(database.execute('SELECT last_action_at FROM account_activity WHERE account_id=?',
+                (self.bob['id'],)).fetchone())
+
+    def test_every_listener_bound_route_releases_authentication_write_lock(self):
+        from unittest.mock import Mock
+        def pending_completion_write(account):
+            with closing(sqlite3.connect(self.db, timeout=0.2)) as database:
+                database.execute('BEGIN IMMEDIATE')
+                database.execute('UPDATE accounts SET id=id WHERE id=?', (account,))
+                database.commit()
+            return {'Result':{}}
+        with ThreadPoolExecutor(max_workers=1) as listener:
+            adapter = Mock()
+            actions = ('room-list','room-info','create','join','matching','start',
+                       'end','retire','heart-beat')
+            for action in actions:
+                # Represents a queued HTTP operation waiting behind a listener
+                # completion that needs the same SQLite writer lock.
+                getattr(adapter, action.replace('-', '_')).side_effect = (
+                    lambda account, data: listener.submit(pending_completion_write, account).result(1))
+            with patch.dict(server.app.config, {'PVE_HTTP':adapter}):
+                for action in actions:
+                    with self.subTest(action=action):
+                        self.assertEqual(self.call('pve/'+action, {}, self.bt), {'Result':{}})
+            for action in actions:
+                getattr(adapter, action.replace('-', '_')).assert_called_once_with(self.bob['id'], {})
+
     def test_direct_messages_persist_unread_stamps_and_likes(self):
         initial = self.send()
         mid = initial["Messages"][0]["MessageId"]

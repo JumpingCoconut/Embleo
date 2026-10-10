@@ -2,6 +2,28 @@
 
 ## Checkpoints
 
+### Current implementation and native request contract
+
+`server.fake_checkpoint` retains only an episode-to-scenario map. Account
+storage puts this map in SQLite under the legacy name `checkpoint.txt`; it
+does not make it a complete episode save. Episode menu responses derive the
+Continue bit (32768) from this map without rewriting stored completion flags.
+
+The installed client's EpisodeCheckPointRequest contains EpisodeId,
+ScenarioNo, EpisodeToken and Playlog. The server currently ignores the latter
+two. Native PlayLogManager.GetEpisodeLog (`0x1905070`) constructs character
+rows containing HP, MaxHP, SP, Level and Exp. At `0x19053AC` SP is obtained
+from BattleCharaBase.get_MP, so this is integer MP rather than the float skill
+gauge. Result/action logs also carry acquired items, static items, tutorial
+guides, kills and remaining/used items.
+
+BuildPlayLog (`0x1906300`) serializes the object using UnityEngine.JsonUtility;
+when CalcPlayLogHash returns a nonempty value, it returns hash + comma + JSON.
+A complete persistence implementation must verify the request/token and decode
+this envelope, retain account/episode state, and reconstruct EpisodeDetailUser.
+The existing scenario map must remain readable while that migration is added.
+These native observations establish payload contents, not reward authority.
+
 ### Saving at checkpoint
 When reaching a checkpoint with "RequestSave" set to True, the game pings `/api/episode/check-point` to save current progress.
 

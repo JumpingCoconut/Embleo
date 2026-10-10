@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 
 def SerVec3toVec3(SerializableVector3):
 	vector_3 = [
@@ -30,10 +31,10 @@ def get_all_episode_scenario_gimmick_id_list(episode_id):
 	return episode_scenario_gimmicks_id_list
 
 
-def get_episode_location_id_list(episode_id):
+def get_episode_location_id_list(episode_id, *, data_root=None):
 	location_id_list = []
 
-	episode_master_data_path = "./data/extract/masterdata/EpisodeMasterDataObject.json"
+	episode_master_data_path = Path(data_root or './data') / 'extract/masterdata/EpisodeMasterDataObject.json'
 	episode_master_data_object = load_json(episode_master_data_path)
 
 	for entry in episode_master_data_object["Datas"]:
@@ -47,12 +48,12 @@ def get_episode_area_id_list(episode_id):
 	return [area["_id"] for area in get_episode_area_infos(episode_id)]
 
 
-def get_episode_area_infos(episode_id):
+def get_episode_area_infos(episode_id, *, data_root=None):
 	areas = []
 
-	episode_location_id_list = get_episode_location_id_list(episode_id)
+	episode_location_id_list = get_episode_location_id_list(episode_id, data_root=data_root)
 
-	stage_location_data_path = "./data/extract/masterdata/StageLocationMasterDataObject.json"
+	stage_location_data_path = Path(data_root or './data') / 'extract/masterdata/StageLocationMasterDataObject.json'
 	stage_location_data = load_json(stage_location_data_path)
 
 	# Get all area ids
@@ -326,7 +327,7 @@ def adapt_episode_layout_gimmick(entry):
 	return gimmick
 
 
-def adapt_gimmicks_for_episode_layout(debug_data, episode_id):
+def adapt_gimmicks_for_episode_layout(debug_data, episode_id, *, data_root=None):
 	gimmicks = []
 
 	for entry in debug_data["Datas"]:
@@ -335,9 +336,9 @@ def adapt_gimmicks_for_episode_layout(debug_data, episode_id):
 		if gimmick != {}:
 			gimmicks.append(gimmick)
 
-	stage_option_data = load_json("./data/masterdata/StageOptionGimmickMasterData.json")
+	stage_option_data = load_json(Path(data_root or './data') / 'masterdata/StageOptionGimmickMasterData.json')
 	gimmicks.extend(adapt_stage_option_gimmicks(
-		get_episode_area_infos(episode_id), stage_option_data
+		get_episode_area_infos(episode_id, data_root=data_root), stage_option_data
 	))
 
 	return gimmicks

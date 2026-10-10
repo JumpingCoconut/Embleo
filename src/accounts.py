@@ -76,6 +76,37 @@ class AccountError(ValueError):
     pass
 
 
+def read_save_snapshot(path, account_id, names):
+    """Read detached account saves in one transaction, without creating/migrating DBs.
+
+    Suitable for room transport threads; the HTTP AccountStore owns write
+    transactions and must not be reused across these threads.
+    """
+    if (type(account_id) is not str or not account_id
+            or type(names) not in (list, tuple) or not names
+            or any(type(name) is not str or not name for name in names)
+            or len(set(names)) != len(names)):
+        raise AccountError('Account identity and unique save names required.')
+    connection = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro',
+                                 uri=True, timeout=5)
+    try:
+        connection.execute('BEGIN')
+        version = connection.execute('PRAGMA user_version').fetchone()[0]
+        if version != SCHEMA_VERSION:
+            raise RuntimeError('Account database must be initialized by the game server.')
+        if not connection.execute('SELECT 1 FROM accounts WHERE id=?',
+                                  (account_id,)).fetchone():
+            raise AccountError('Unknown account.')
+        rows = dict(connection.execute(
+            'SELECT name,value FROM saves WHERE account_id=? AND name IN ('
+            + ','.join('?' for _ in names) + ')', (account_id, *names)))
+        if set(rows) != set(names):
+            raise AccountError('Required account save is missing.')
+        return {name: json.loads(rows[name]) for name in names}
+    finally:
+        connection.close()
+
+
 def default_saves():
     # Generate player state from master data, never clone the live shared save.
     from scripts.generate.generate_save_file import (
