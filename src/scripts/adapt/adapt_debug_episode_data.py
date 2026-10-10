@@ -87,6 +87,7 @@ def fill_episode_layout_group_by_episode_id(episode_id):
 
     # episode_master_data_path = "./data/masterdata/episode/{0}/".format(episode_id)
     episode_master_data_path = "./data/extract/masterdatadebug/episode/{0}/".format(episode_id)  # Use unadapted data for now
+    platoon_master_data_path = "./data/extract/masterdatadebug/PlatoonMasterDataObject.json"  # Use unadapted data for now
 
     # Get a list of files in the relevant episode data folder
     episode_master_data_path_files = os.listdir(episode_master_data_path)
@@ -102,6 +103,15 @@ def fill_episode_layout_group_by_episode_id(episode_id):
 
             if group_name == "Gimmicks":
                 LayoutGroup[group_name] = adapt_function(master_data, episode_id)
+            elif group_name == "Enemies":
+                platoon_master_data = load_json(platoon_master_data_path)
+
+                adapted_platoon_data = {}
+
+                for platoon_entry in platoon_master_data["Datas"]:
+                    adapted_platoon_data[platoon_entry["_id"]] = platoon_entry
+
+                LayoutGroup[group_name] = adapt_function(master_data, adapted_platoon_data)
             else:
                 LayoutGroup[group_name] = adapt_function(master_data)
 
