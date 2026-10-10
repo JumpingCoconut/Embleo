@@ -693,7 +693,9 @@ def register_multiplayer(app, request_object, pack, user_view, error_response):
     @app.route("/api/pve/<action>", methods=["GET","POST"])
     def pve_unavailable(action):
         if action == 'list' and app.config.get('PVE_PUBLICATION') is not None:
-            data = request_object()
+            if request.method == 'GET' and any(len(values) != 1 for _,values in request.args.lists()):
+                return error_response('Ambiguous event selection.',400)
+            data = payload()
             if set(data) != {'EventId'} or type(data['EventId']) is not str:
                 return error_response('Invalid event selection.',400)
             try:
@@ -709,7 +711,14 @@ def register_multiplayer(app, request_object, pack, user_view, error_response):
                            "create":adapter.create,"join":adapter.join,
                            "matching":adapter.matching,"start":adapter.start,
                            "end":adapter.end,"retire":adapter.retire,"heart-beat":adapter.heart_beat}[action]
-                data = request_object()
+                if request.method == 'GET' and any(len(values) != 1 for _,values in request.args.lists()):
+                    return error_response('Ambiguous room discovery.',400)
+                data = payload()
+                if request.method == 'GET' and 'Difficulty' in data:
+                    value = data['Difficulty']
+                    if not value.isascii() or not value.isdecimal() or len(value) > 10:
+                        return error_response('Invalid difficulty.',400)
+                    data['Difficulty'] = int(value)
                 # Authentication only read this transaction. Every adapter
                 # submission waits on the same listener loop; an overlapping
                 # completion may need its own account write transaction there.

@@ -53,6 +53,11 @@ class MultiplayerTests(unittest.TestCase):
             for token,account in ((self.at,self.alice['id']),(self.bt,self.bob['id'])):
                 value = self.call('pve/list',{'eventId':'raid'},token)
                 self.assertEqual(value['PveEvent']['EpisodeUsers'][0]['owner'],account)
+                response = self.client.get('/api/pve/list?eventId=raid',
+                    headers={'Authorization':token})
+                self.assertEqual(self.unpack(response), value)
+            self.assertEqual(self.client.get('/api/pve/list?eventId=raid&eventId=other',
+                headers={'Authorization':self.at}).status_code,400)
             self.assertEqual(self.post('/api/pve/list',{'eventId':'unknown'},token=self.at).status_code,400)
             self.assertEqual(self.post('/api/pve/list',{'eventId':'raid','userId':self.bob['id']},token=self.at).status_code,400)
             self.assertEqual(self.client.post('/api/pve/list',data=b'\x80').status_code,401)
@@ -107,6 +112,16 @@ class MultiplayerTests(unittest.TestCase):
             self.assertEqual(result,{'Rooms':[{'RoomId':'room'}]})
             control.submit.assert_called_once_with('discover_event',self.alice['id'],'event',2,'v')
             control.reset_mock()
+            response = self.client.get('/api/pve/room-list?eventId=event&difficulty=2&pveVersion=v',
+                headers={'Authorization':self.at})
+            self.assertEqual(self.unpack(response), result)
+            control.submit.assert_called_once_with('discover_event',self.alice['id'],'event',2,'v')
+            control.reset_mock()
+            for difficulty in ('-1','true','2.0','2147483648'):
+                self.assertEqual(self.client.get('/api/pve/room-list',query_string=dict(
+                    eventId='event',difficulty=difficulty,pveVersion='v'),
+                    headers={'Authorization':self.at}).status_code,400)
+            control.submit.assert_not_called()
             info = Future()
             info.set_result({'RoomId':'room'})
             control.submit.return_value = info
