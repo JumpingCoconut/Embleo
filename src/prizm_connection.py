@@ -4,6 +4,9 @@ The listener must supply TLS. This module does not bind public ports or enable
 HTTP raid discovery. Service handlers receive validated session identity.
 """
 
+import base64
+import secrets
+
 from prizm_protocol import (FrameDecoder, Opcode, ProtocolError,
                             read_hello_request, read_fallback_request,
                             handshake_response, read_user_message, user_message, ping_reply)
@@ -86,7 +89,11 @@ class Connection:
                     output.append(handshake_response({
                         'session_id': self.session.session_id,
                         'player_id': self.session.admission.player_id,
-                        'encryption': False}))
+                        'encryption': False,
+                        # Native UdpEncryption initializes both MACs even with
+                        # encryption disabled (constructor RVA 0x1B1F294).
+                        # TCP fallback stays inside the authenticated TLS stream.
+                        'mac_key': base64.b64encode(secrets.token_bytes(32)).decode('ascii')}))
                     if hasattr(self.service_handler,'connected'):
                         self.service_handler.connected(self)
                     continue
@@ -97,7 +104,12 @@ class Connection:
                     if self.fallback_enabled:
                         raise ProtocolError('Fallback already negotiated.')
                     try:
-                        self.registry.fallback(self.session.session_id, read_fallback_request(payload))
+                        credential = read_fallback_request(payload)
+                        # Native TCP-only clients send a zero-length fallback
+                        # credential on their already authenticated TLS stream.
+                        # A supplied credential must still match this admission.
+                        if credential:
+                            self.registry.fallback(self.session.session_id, credential)
                     except (SessionError, ProtocolError):
                         output.append(handshake_response(None, 'Authentication failed.', failed=True, fallback=True))
                         self.close()

@@ -1,4 +1,5 @@
 import sys
+import base64
 import unittest
 import struct
 from pathlib import Path
@@ -13,6 +14,20 @@ from prizm_protocol import (FrameDecoder, Opcode, ProtocolError, hello_request,
 
 
 class ConnectionTests(unittest.TestCase):
+    def test_native_empty_fallback_requires_authenticated_connection(self):
+        self.connection.receive(hello_request(self.tcp))
+        reply = self.connection.receive(fallback_request(''))
+        self.assertEqual(read_handshake_response(FrameDecoder().feed(reply[0])[0][1])[0], 0)
+        self.assertTrue(self.connection.fallback_enabled)
+        anonymous = Connection(self.registry, self.handler)
+        with self.assertRaises(ProtocolError):
+            anonymous.receive(fallback_request(''))
+        self.assertTrue(anonymous.closed)
+        empty_hello = Connection(self.registry, self.handler)
+        response = empty_hello.receive(hello_request(''))
+        self.assertEqual(read_handshake_response(FrameDecoder().feed(response[0])[0][1])[0], 1)
+        self.assertTrue(empty_hello.closed)
+
     def test_native_reconnect_repeats_hello_and_fallback_after_socket_eof(self):
         registry = SessionRegistry(reconnect=True)
         tcp, udp = registry.issue('alice', 'room', 1)
@@ -80,6 +95,7 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(token['player_id'], 1)
         self.assertFalse(token['encryption'])
+        self.assertEqual(len(base64.b64decode(token['mac_key'], validate=True)), 32)
         self.assertEqual(read_handshake_response(decoded[1][1])[1]['session_id'], token['session_id'])
         self.assertEqual(read_user_message(decoded[2][1]), (1000, b'reply'))
         session, service, body, reliable = self.handler.call_args.args

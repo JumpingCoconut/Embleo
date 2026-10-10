@@ -157,7 +157,10 @@ def hello_request(credential):
 def read_hello_request(payload):
     if not payload or payload[0] != 1:
         raise ProtocolError('Unsupported protocol version.')
-    return read_fallback_request(payload[1:])
+    credential = read_fallback_request(payload[1:])
+    if not credential:
+        raise ProtocolError('Hello requires a credential.')
+    return credential
 
 
 def fallback_request(credential):
@@ -166,7 +169,7 @@ def fallback_request(credential):
 
 def read_fallback_request(payload):
     credential, end = _read_short_bytes(payload, 0)
-    if end != len(payload) or not credential:
+    if end != len(payload):
         raise ProtocolError('Invalid credential payload.')
     try:
         return credential.decode('utf-8')
