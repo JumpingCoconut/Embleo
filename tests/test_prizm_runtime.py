@@ -56,6 +56,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(queued.cancelled())
         self.assertEqual(runtime.rooms.rooms,{})
         self.assertEqual(runtime.rooms.memberships,{})
+        self.assertEqual(runtime.rooms.search_ids,{})
         self.assertEqual(runtime.registry.credentials,{})
         with self.assertRaises(SessionError): runtime.registry.open(tcp)
         with self.assertRaises(RuntimeError): runtime.control.submit('leave','alice',room['RoomId'])

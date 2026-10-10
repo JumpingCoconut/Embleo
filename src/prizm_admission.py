@@ -31,9 +31,9 @@ def admission_payload(room_id, search_id, tcp_credential, udp_credential,
         if type(value) is not str or not value or len(value) > 512:
             raise ValueError('Invalid transport admission field.')
     # UILayoutPvERoom.setRoomId displays Substring(0, 3) + Substring(3, 4).
-    # A shorter code throws before the native lobby can poll room state.
-    if len(search_id) < 7:
-        raise ValueError('Native room search code requires at least seven characters.')
+    # UIPartsPvEInputID accepts exactly seven decimal digits for room entry.
+    if not re.fullmatch(r'[0-9]{7}', search_id):
+        raise ValueError('Native room search code requires seven decimal digits.')
     if tcp_credential == udp_credential:
         raise ValueError('TCP and UDP credentials must be distinct.')
     return dict(RoomId=room_id,SearchId=search_id,JwtTcp=tcp_credential,

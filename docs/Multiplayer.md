@@ -397,9 +397,11 @@ credentials and addresses into Prizm. `ServerEndPoint(string)` at `0x1B17B58`
 splits on the last colon and parses the port: use `host:port`, without URL
 schemes or paths. Native `UILayoutPvERoom.setRoomId` reads SearchId and displays
 `Substring(0, 3)` followed by `Substring(3, 4)` (calls at `0x3269740`
-and `0x32697AC`). SearchId therefore needs at least seven characters;
-shorter codes throw before room polling. The admission builder and HTTP
-provider validation reject them. Search lookup/uniqueness and public endpoint
+and `0x32697AC`). Shorter codes throw before room polling.
+`UIPartsPvEInputID` allocates seven digit slots and ten digit buttons;
+it enables room entry only when all seven slots are filled.
+The admission builder and HTTP provider validation require exactly seven
+ASCII decimal digits. Search lookup/uniqueness and public endpoint
 configuration remain operator responsibilities. Preserve certificate verification; the unencrypted application
 session flag does not replace TLS.
 
@@ -557,8 +559,11 @@ listener-side provider, checks that its UserId matches the authenticated caller,
 uses scheduled create_event admission, then builds Prizm through a configured
 connection provider. RoomId and both returned credentials must match the actual
 admission; response-construction failure removes membership and revokes issued
-credentials. SearchId remains provider-supplied and must satisfy native display length.
-The native declaration alone does not justify treating SearchId as RoomId.
+credentials. Rooms allocate a unique seven-digit SearchId, retain it across host
+handover and release it when the room empties. Connection providers must publish
+that exact code. HTTP room-info and join resolve it to the internal RoomId before
+applying the existing event, version, eligibility and access checks.
+Transport identity remains the internal RoomId.
 Configured POST `/api/pve/create` accepts EpisodeId, PublicLevel and PveVersion.
 Configured POST `/api/pve/join` accepts RoomId, JoinRoute and PveVersion, matching
 the native PveJoinRequest declaration. The server resolves the room episode's

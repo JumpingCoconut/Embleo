@@ -87,6 +87,8 @@ def player_payload(player, *, allow_unselected=False):
 
 def _players(players):
     result = [player_payload(player,allow_unselected=True) for player in players]
+    if any(player[7] < 1 for player in result):
+        raise ValueError('Room player order must be one-based.')
     if len({player[1] for player in result}) != len(result):
         raise ValueError('Duplicate room player.')
     if len({player[7] for player in result}) != len(result):

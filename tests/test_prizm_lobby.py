@@ -11,7 +11,7 @@ from prizm_protocol import (hello_request, user_message, rpc_request,
                             FrameDecoder, read_user_message, read_rpc_response)
 
 
-def player(name='alice', order=0, host=True):
+def player(name='alice', order=1, host=True):
     return dict(UserId=name, Name=name.title(), CharacterId='pl001',
                 CharacterLevel=10, CharacterPower=100, VisualEquipments=[],
                 Order=order, IsHost=host, CliVersion='1.6.0', Ready=0,
@@ -28,7 +28,7 @@ class LobbyPayloadTests(unittest.TestCase):
     def test_ready_notification_uses_distinct_command(self):
         self.assertEqual(ready_notification('a',1),bytes.fromhex('0800 8201a1610201'))
     def test_join_and_info_through_authenticated_framing(self):
-        people = [player(), player('bob',1,False)]
+        people = [player(), player('bob',2,False)]
         room = dict(RoomId='room', Players=people, LimitSuspendTime=60,
                     LimitSuspendCount=3, OnetimeLimitSuspendTime=20,
                     IsPrivate=False, Mode=1, Status=0, PublicLevel=0)
@@ -62,9 +62,9 @@ class LobbyPayloadTests(unittest.TestCase):
     def test_native_field_mapping(self):
         payload = player_payload(player())
         self.assertEqual(payload, {1:'alice',2:'Alice',3:'pl001',4:10,5:100,
-                                  6:[],7:0,8:True,9:'1.6.0',10:0,11:[],12:[],
+                              6:[],7:1,8:True,9:'1.6.0',10:0,11:[],12:[],
                                   13:1000,14:20,15:30,16:1})
-        people = [player(), player('bob',1,False)]
+        people = [player(), player('bob',2,False)]
         joined = msgpack.unpackb(join_reply(people,60,3,20),raw=False,strict_map_key=False)
         self.assertEqual([entry[1] for entry in joined[1]], ['alice','bob'])
         self.assertEqual([joined[key] for key in (2,3,4)], [60,3,20])

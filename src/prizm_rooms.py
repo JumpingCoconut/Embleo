@@ -38,6 +38,27 @@ class Rooms:
         self.lock = threading.RLock()
         self.rooms = {}
         self.memberships = {}
+        self.search_ids = {}
+
+    def resolve_room_id(self, identity):
+        """Resolve a displayed room code without replacing transport identity."""
+        if type(identity) is not str or not identity:
+            raise RoomError('Invalid room identity.')
+        with self.lock:
+            if identity in self.rooms:
+                return identity
+            room_id = self.search_ids.get(identity)
+            if room_id is None or room_id not in self.rooms:
+                raise RoomError('Unknown room.')
+            return room_id
+
+    def _new_search_id(self):
+        # Native input has seven decimal slots; preserve leading zeroes.
+        for _ in range(100):
+            code = format(secrets.randbelow(10**7), '07d')
+            if code not in self.search_ids:
+                return code
+        raise RoomError('Room search identity unavailable.')
 
     def create(self, player, episode_id, version, private, public_level,
                mode, suspend_limits):
@@ -54,14 +75,17 @@ class Rooms:
             if account in self.memberships or len(self.rooms) >= self.room_limit:
                 raise RoomError('Player already admitted or room limit reached.')
             room_id = secrets.token_hex(16)
+            search_id = self._new_search_id()
             host = copy.deepcopy(player)
-            host.update(Order=0,IsHost=True,Ready=0)
-            room = dict(RoomId=room_id,EpisodeId=episode_id,PveVersion=version,
+            # OpenSetup indexes contents[Order - 1]; zero is not a lobby slot.
+            host.update(Order=1,IsHost=True,Ready=0)
+            room = dict(RoomId=room_id,SearchId=search_id,EpisodeId=episode_id,PveVersion=version,
                         Players=[host],IsPrivate=private,PublicLevel=public_level,
                         Mode=mode,Status=0,LimitSuspendTime=suspend_limits[0],
                         LimitSuspendCount=suspend_limits[1],
                         OnetimeLimitSuspendTime=suspend_limits[2])
             self.rooms[room_id] = room
+            self.search_ids[search_id] = room_id
             self.memberships[account] = room_id
             return copy.deepcopy(room)
 
@@ -81,7 +105,7 @@ class Rooms:
             if len(room['Players']) >= self.capacity:
                 raise RoomError('Room is full.')
             used = {entry['Order'] for entry in room['Players']}
-            order = next(slot for slot in range(self.capacity) if slot not in used)
+            order = next(slot for slot in range(1,self.capacity + 1) if slot not in used)
             entry = copy.deepcopy(player)
             entry.update(Order=order,IsHost=False,Ready=0)
             room['Players'].append(entry)
@@ -98,6 +122,7 @@ class Rooms:
             del self.memberships[account]
             if not room['Players']:
                 del self.rooms[room_id]
+                self.search_ids.pop(room['SearchId'], None)
                 return None
             if not any(entry['IsHost'] for entry in room['Players']):
                 room['Players'][0]['IsHost'] = True

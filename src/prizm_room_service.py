@@ -2,6 +2,7 @@
 
 import copy
 import secrets
+import re
 import msgpack
 
 from prizm_lobby import (LobbyService, ready_notification, join_notification,
@@ -186,6 +187,7 @@ class RoomService:
         if type(route) is not int or route not in (1,2,3):
             raise RoomError('Invalid room join route.')
         with self.rooms.lock:
+            room_id = self.rooms.resolve_room_id(room_id)
             room = self.rooms.rooms.get(room_id)
             if room is None:
                 raise RoomError('Room unavailable.')
@@ -228,10 +230,11 @@ class RoomService:
         try:
             connection = self.connection_provider(copy.deepcopy(room),tcp,udp)
             if (type(connection) is not dict or connection.get('RoomId') != room['RoomId']
+                    or connection.get('SearchId') != room['SearchId']
                     or connection.get('JwtTcp') != tcp or connection.get('JwtUdp') != udp
                     or any(type(connection.get(field)) is not str or not connection[field]
                            for field in ('SearchId','Tcp','Udp'))
-                    or len(connection['SearchId']) < 7):
+                    or not re.fullmatch(r'[0-9]{7}', connection['SearchId'])):
                 raise RoomError('Invalid server connection response.')
             return {'Prizm':connection}
         except Exception:
@@ -317,6 +320,7 @@ class RoomService:
                 or self.eligibility_provider is None):
             raise RoomError('HTTP room information is not configured.')
         with self.rooms.lock:
+            room_id = self.rooms.resolve_room_id(room_id)
             room = self.rooms.rooms.get(room_id)
             if (room is None or room['PveVersion'] != version
                     or room.get('EventId',event_id) != event_id):
@@ -332,7 +336,8 @@ class RoomService:
     def _credentials(self, room, account_id):
         player = next(entry for entry in room['Players'] if entry['UserId'] == account_id)
         try:
-            tcp,udp = self.registry.issue(account_id,room['RoomId'],player['Order']+1)
+            # One-based room slots preserve transport IDs 1..capacity.
+            tcp,udp = self.registry.issue(account_id,room['RoomId'],player['Order'])
         except Exception:
             self.rooms.leave(account_id,room['RoomId'])
             raise

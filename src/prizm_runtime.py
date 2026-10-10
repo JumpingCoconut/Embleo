@@ -71,3 +71,4 @@ class Runtime:
                     self.registry.revoke(account,room_id)
                 self.rooms.memberships.clear()
                 self.rooms.rooms.clear()
+                self.rooms.search_ids.clear()

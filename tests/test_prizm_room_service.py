@@ -34,7 +34,7 @@ class RoomServiceTests(unittest.TestCase):
             command_message(5,msgpack.packb(request)))),[])
         current = rooms.rooms[room['RoomId']]['Players'][0]
         self.assertEqual((current['CharacterId'],current['CharacterHp'],current['Order'],current['IsHost']),
-                         ('owned',123,0,True))
+                         ('owned',123,1,True))
         _,body = read_user_message(FrameDecoder().feed(connection.notifications()[0])[0][1])
         command,payload = read_command_message(body)
         self.assertEqual(command,6)
@@ -381,7 +381,7 @@ class RoomServiceTests(unittest.TestCase):
         alice = registry.open(tcp)
         registry.fallback(alice.session_id,udp)
         joined,bob_tcp,bob_udp = service.join(room_id,player('bob',1,False),'v')
-        self.assertEqual(joined['Players'][1]['Order'],1)
+        self.assertEqual(joined['Players'][1]['Order'],2)
         bob = registry.open(bob_tcp)
         self.assertEqual(bob.admission.player_id,2)
         registry.fallback(bob.session_id,bob_udp)

@@ -16,7 +16,7 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual((host,int(port)),('::1',1234))
 
     def test_rejects_search_codes_that_crash_native_lobby_formatting(self):
-        for code in ('trial','123456'):
+        for code in ('trial','123456','12345678','abcdefg','１２３４５６７','123456\n'):
             with self.subTest(code=code),self.assertRaisesRegex(ValueError,'seven'):
                 admission_payload('room',code,'tcp-token','udp-token',
                                   'localhost',1234,'localhost',1235)

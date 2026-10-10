@@ -146,7 +146,7 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
                     eligibility_provider=profiles.admission_eligibility,
                     room_settings_provider=lambda episode:dict(Mode=1,SuspendLimits=(60,3,20)),
                     room_view_provider=views,connection_provider=lambda room,tcp,udp:
-                        admission_payload(room['RoomId'],'1234567',tcp,udp,'localhost',port,'localhost',port))
+                        admission_payload(room['RoomId'],room['SearchId'],tcp,udp,'localhost',port,'localhost',port))
                 def validate(room,prepared,character_id,overrides):
                     power = prepared.character(prepared.account_id,character_id,overrides)['Power']
                     self.assertEqual(catalog.eligible_event(room['EpisodeId'],power,'android','1.6.0'),
