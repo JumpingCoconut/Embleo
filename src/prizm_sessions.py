@@ -142,6 +142,17 @@ class SessionRegistry:
             self.credential_deadlines = {key: deadline for key, deadline in
                                         self.credential_deadlines.items() if key in self.credentials}
 
+    def active_admissions(self):
+        """Return live or reconnectable room identities without renewing them."""
+        with self.lock:
+            self._expire()
+            result = {(session.admission.account_id, session.admission.room_id)
+                      for session in self.sessions.values()}
+            result.update((admission.account_id, admission.room_id)
+                          for admission, kind in self.credentials.values()
+                          if kind == 'tcp')
+            return result
+
     def close(self, session_id):
         with self.lock:
             session = self.sessions.pop(session_id, None)

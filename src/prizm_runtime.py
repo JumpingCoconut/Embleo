@@ -37,6 +37,12 @@ class Runtime:
         self.control = None
         self.closed = False
         self.lifecycle = asyncio.Lock()
+        self.cleanup_task = None
+
+    async def _expire_lobbies(self):
+        while True:
+            self.service.expire_lobbies()
+            await asyncio.sleep(1)
 
     def _owner(self):
         if asyncio.get_running_loop() is not self.loop:
@@ -49,6 +55,7 @@ class Runtime:
                 raise RuntimeError('Runtime cannot be restarted.')
             sockets = await self.listener.start(host,port,tls)
             self.control = RoomControl(self.service)
+            self.cleanup_task = asyncio.create_task(self._expire_lobbies())
             return sockets
 
     async def stop(self):
@@ -62,6 +69,9 @@ class Runtime:
         self.closed = True
         if self.control is not None:
             self.control.close()
+        if self.cleanup_task is not None:
+            self.cleanup_task.cancel()
+            await asyncio.gather(self.cleanup_task, return_exceptions=True)
         try:
             await self.listener.stop()
         finally:
@@ -72,3 +82,4 @@ class Runtime:
                 self.rooms.memberships.clear()
                 self.rooms.rooms.clear()
                 self.rooms.search_ids.clear()
+                self.service.admissions.clear()

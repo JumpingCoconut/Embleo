@@ -43,6 +43,7 @@ class RoomService:
         self.completion_provider = completion_provider
         self.lobby = LobbyService(rooms.snapshot)
         self.connections = {}
+        self.admissions = set()
 
     @staticmethod
     def _object(room, guid):
@@ -53,9 +54,28 @@ class RoomService:
         if connection.registry is not self.registry:
             raise ValueError('Room service and listener must share the session registry.')
         self.connections[connection.session.session_id] = connection
+        admission = connection.session.admission
+        self.admissions.add((admission.account_id, admission.room_id))
 
     def disconnected(self, connection):
         self.connections.pop(connection.session.session_id,None)
+
+    def expire_lobbies(self):
+        """Release abandoned lobbies after their actual reconnect window ends.
+
+        Prepared battles retain membership for start retries and completion.
+        Their suspension/outcome policy is separate from lobby admission expiry.
+        """
+        active = self.registry.active_admissions()
+        with self.rooms.lock:
+            for account_id, room_id in list(self.admissions):
+                if self.rooms.memberships.get(account_id) != room_id:
+                    self.admissions.discard((account_id, room_id))
+                    continue
+                room = self.rooms.rooms[room_id]
+                if ('PreparedBattle' not in room and room['Status'] == 0
+                        and (account_id, room_id) not in active):
+                    self.leave(account_id, room_id)
 
     def broadcast(self, room, notification, exclude=None, service=1000, recipient=None,
                   reliable=True, coalesce=None):
@@ -74,10 +94,12 @@ class RoomService:
 
     def create(self, player, *configuration, **options):
         """Admit an authenticated server-owned player; roll back failed issuance."""
+        self.expire_lobbies()
         room = self.rooms.create(player,*configuration,**options)
         return self._credentials(room,player['UserId'])
 
     def join(self, room_id, player, version):
+        self.expire_lobbies()
         room = self.rooms.join(room_id,player,version)
         admission = self._credentials(room,player['UserId'])
         self.admitted(room,player['UserId'])
@@ -89,6 +111,7 @@ class RoomService:
         guild_provider must read server data on the listener thread, not retain
         a Flask request transaction. Checks run while the room lock is held.
         """
+        self.expire_lobbies()
         if (type(episode_ids) not in (tuple,list,set,frozenset)
                 or any(type(value) is not str for value in episode_ids)):
             raise ValueError('Invalid authorized episode scope.')
@@ -112,6 +135,7 @@ class RoomService:
         return room_access(room,route,viewer_guild,host_guild)
 
     def discover(self, account_id, episode_ids, version, route=1, event_context=None):
+        self.expire_lobbies()
         if (type(account_id) is not str or not account_id
                 or type(route) is not int or route not in (1,2)
                 or type(version) is not str or not version
@@ -133,6 +157,7 @@ class RoomService:
         Event difficulty/power eligibility must already define episode_ids.
         No compatible candidate is an error, not a fabricated admission.
         """
+        self.expire_lobbies()
         with self.rooms.lock:
             if player['UserId'] in self.rooms.memberships:
                 raise RoomError('Player already admitted.')
@@ -201,6 +226,7 @@ class RoomService:
             return self._http_admission(account_id,room,tcp,udp)
 
     def matching_http(self, account_id, event_id, difficulty, version):
+        self.expire_lobbies()
         if (self.player_provider is None or self.connection_provider is None
                 or self.room_view_provider is None):
             raise RoomError('HTTP matching is not configured.')
@@ -341,11 +367,13 @@ class RoomService:
         except Exception:
             self.rooms.leave(account_id,room['RoomId'])
             raise
+        self.admissions.add((account_id, room['RoomId']))
         return room,tcp,udp
 
     def leave(self, account_id, room_id):
         """Explicit departure, not socket loss (which may permit reconnect)."""
         room = self.rooms.leave(account_id,room_id)
+        self.admissions.discard((account_id, room_id))
         self.registry.revoke(account_id,room_id)
         for connection in list(self.connections.values()):
             admission = connection.session.admission
