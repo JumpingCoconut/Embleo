@@ -16,6 +16,7 @@ def SerVec3toVec3(SerializableVector3):
 
 	return vector_3
 
+
 def adapt_episode_enemies_for_episode_layout(master_data):
 	enemies = []
 
@@ -28,7 +29,7 @@ def adapt_episode_enemies_for_episode_layout(master_data):
 			# "Flags": 0,
 
 			"AppearanceNum": entry["_appearanceNum"],
-			"MaxAppearanceNum": entry["_appearanceNum"],
+			"MaxAppearanceNum": entry["_appearanceNum"] + 10,
 
 			"GroupId": entry["_groupID"],
 
@@ -58,9 +59,6 @@ def adapt_episode_enemies_for_episode_layout(master_data):
 			"FormationPadding": SerVec2toVec2({"x": 1.0, "y": 1.0})
 		}
 
-		if entry["_childEnemyData"]["FormationId"] == "3_1":
-			layout_entry["Child"]["Formation"] = "1,,,,1,\r\n,\r\n,,0,\r"
-
 		summon_data = entry["_summonEnemyData"]
 
 		# EpisodeEnemySummonRule
@@ -80,10 +78,5 @@ def adapt_episode_enemies_for_episode_layout(master_data):
 		}
 
 		enemies.append(layout_entry)
-
-	for entry in enemies:
-
-		if entry["SummonRule"]["EpisodeEnemyId"] != "":
-			print(entry)
 
 	return enemies
