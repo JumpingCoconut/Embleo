@@ -75,6 +75,44 @@ class EpisodeEnemyTests(unittest.TestCase):
             row = layouts.fill_episode_layout_group_by_episode_id('fixture',data_root='fixture-data')['Enemies'][0]
         self.assertEqual(row['Child']['FormationPadding'],[1.5,2])
 
+    def test_release_child_definitions_are_external_and_keep_individual_identity(self):
+        original = copy.deepcopy(self.source)
+        rows = adapt_episode_enemies_for_episode_layout(self.source,platoon_master_data=self.platoons)
+        self.assertEqual([r['EpisodeEnemyId'] for r in rows],
+                         ['parent','Ext.parent.child','Ext.parent.second'])
+        child = rows[1]
+        self.assertEqual(child['EnemyId'],'child')
+        self.assertEqual(child['RoleType'],1)
+        self.assertEqual(child['AppearanceRule'],{'Type':2,'Params':[]})
+        self.assertEqual(child['GroupId'],'group')
+        self.assertEqual(child['ScenarioNo'],[10000,19999])
+        self.assertEqual(child['AppearanceNum'],1)
+        self.assertIsNone(child['Child'])
+        self.assertIsNone(child['SummonRule'])
+        self.assertEqual(self.source,original)
+
+    def test_generator_emits_one_external_target_without_recursive_summon(self):
+        entry = enemy(2)
+        entry['_childEnemyData'] = dict(EnemyIds=[''],FormationId='')
+        rows = adapt_episode_enemies_for_episode_layout({'Datas':[entry]})
+        self.assertEqual(len(rows),2)
+        self.assertEqual(rows[1]['EpisodeEnemyId'],'Ext.parent.summon-only')
+        self.assertEqual(rows[1]['EnemyId'],'summon-only')
+        self.assertIsNone(rows[1]['SummonRule'])
+        entry['_summonEnemyData']['EnemyId'] = ''
+        self.assertEqual(len(adapt_episode_enemies_for_episode_layout({'Datas':[entry]})),1)
+
+    def test_repeated_child_target_has_one_definition_and_id_collisions_fail(self):
+        self.source['Datas'][0]['_childEnemyData']['EnemyIds']=['child','child']
+        rows = adapt_episode_enemies_for_episode_layout(self.source,platoon_master_data=self.platoons)
+        self.assertEqual(len(rows),2)
+        self.assertEqual(rows[0]['Child']['Ids'],['child','child'])
+        placed = enemy(0)
+        placed['_id'] = 'Ext.parent.child'
+        self.source['Datas'].append(placed)
+        with self.assertRaisesRegex(ValueError,'Duplicate external episode enemy'):
+            adapt_episode_enemies_for_episode_layout(self.source,platoon_master_data=self.platoons)
+
     @unittest.skipUnless(os.environ.get('EMBLEO_TEST_RAID_DATA'), 'installed data opt-in')
     def test_installed_bastien_first_part_children_and_generator_dependencies(self):
         root = Path(os.environ['EMBLEO_TEST_RAID_DATA'])
@@ -91,6 +129,10 @@ class EpisodeEnemyTests(unittest.TestCase):
         self.assertEqual(parent['Child']['FormationPadding'],[1,1])
         barracks = by_id['EM_CP01_001-Barracks01']['SummonRule']
         self.assertEqual((barracks['InitialAppearNum'],barracks['MinLimitNum'],barracks['TotalNum']),(15,15,25))
+        external=by_id['Ext.EM_CP01_001-Barracks01.em0023_001_02']
+        self.assertEqual(external['AppearanceRule']['Type'],2)
+        self.assertEqual(external['EnemyId'],'em0023_001_02')
+        self.assertIsNone(external['SummonRule'])
         individuals = json.loads((root/'masterdata/EnemyIndividualMasterData.json').read_text(encoding='utf-8'))
         known = {row['Index'] for row in individuals}
         self.assertFalse(set(episode_enemy_individual_ids(source))-known)

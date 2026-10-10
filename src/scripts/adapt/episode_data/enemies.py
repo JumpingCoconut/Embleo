@@ -33,6 +33,8 @@ def episode_enemy_individual_ids(master_data):
 
 def adapt_episode_enemies_for_episode_layout(master_data, *, platoon_master_data=None):
 	enemies = []
+	external_enemies = []
+	used_ids = {entry["_id"] for entry in master_data["Datas"]}
 	formations = {entry["_id"]: entry
 		for entry in (platoon_master_data or {"Datas": []})["Datas"]}
 
@@ -99,4 +101,34 @@ def adapt_episode_enemies_for_episode_layout(master_data, *, platoon_master_data
 
 		enemies.append(layout_entry)
 
-	return enemies
+		# Release clients do not run the debug-local external-definition builder.
+		# These definitions are looked up by child/summon creation, never placed.
+		targets = (entry["_childEnemyData"]["EnemyIds"] if entry["_enemyType"] == 1
+			else [entry["_summonEnemyData"]["EnemyId"]] if entry["_enemyType"] == 2
+			else [])
+		for individual_id in dict.fromkeys(targets):
+			if not individual_id:
+				continue
+			external_id = "Ext.{}.{}".format(entry["_id"], individual_id)
+			if external_id in used_ids:
+				raise ValueError("Duplicate external episode enemy {!r}".format(external_id))
+			used_ids.add(external_id)
+			external_enemies.append({
+				"EpisodeEnemyId": external_id,
+				"EnemyId": individual_id,
+				"RoleType": 1,
+				"Flags": layout_entry["Flags"] & 8,  # Inherit only the parent's wait state.
+				"AppearanceNum": 1,
+				"MaxAppearanceNum": 1,
+				"GroupId": entry["_groupID"],
+				"AppearanceRule": {"Type": 2, "Params": []},
+				"Child": None,
+				"SummonRule": None,
+				"VisualId": "",
+				"SurviveId": "",
+				"PatrolPoints": [],
+				"PriorityPoint": "",
+				"ScenarioNo": list(layout_entry["ScenarioNo"]),
+			})
+
+	return enemies + external_enemies

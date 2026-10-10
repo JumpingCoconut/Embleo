@@ -16,8 +16,8 @@ def raid_enemy_detail(layout):
     """Include placed, child and summon-only enemy individuals for battle."""
     ids = []
     for enemy in layout['Enemies']:
-        for key in [enemy['EnemyId'], *enemy.get('Child', {}).get('Ids', []),
-                    enemy.get('SummonRule', {}).get('EpisodeEnemyId', '')]:
+        for key in [enemy['EnemyId'], *(enemy.get('Child') or {}).get('Ids', []),
+                    (enemy.get('SummonRule') or {}).get('EpisodeEnemyId', '')]:
             if type(key) is not str:
                 raise ValueError('Invalid installed raid enemy reference.')
             if key and key not in ids:

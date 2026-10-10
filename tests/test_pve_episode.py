@@ -65,7 +65,7 @@ class EpisodeLoaderTests(unittest.TestCase):
     def test_enemy_detail_includes_children_without_empty_or_duplicate_ids(self):
         layout = {'Enemies':[{'EnemyId':'boss','Child':{'Ids':['child','', 'boss']},
                               'SummonRule':{'EpisodeEnemyId':'summon-only'}},
-                              {'EnemyId':'child','Child':{'Ids':[]}}]}
+                              {'EnemyId':'child','Child':None,'SummonRule':None}]}
         self.assertEqual(raid_enemy_detail(layout),
                          {'Enemies':[{'EnemyId':'boss'},{'EnemyId':'child'},{'EnemyId':'summon-only'}]})
         with self.assertRaises(ValueError):

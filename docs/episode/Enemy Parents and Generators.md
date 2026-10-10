@@ -1,14 +1,26 @@
 # Enemy parents and generators
 
-This investigation covers Bastien episode 1 (`pl011_ep001`) and the current episode adapter. It identifies the parent-formation defect and the client-side spawning paths. The adapter now resolves parent grids and padding, and the episode enemy-detail response includes generator-only targets. These changes are checked against installed Bastien data; actual gameplay and a complete explanation for every generator failure remain unverified.
+This investigation covers Bastien episode 1 (`pl011_ep001`) and the current episode adapter. It identifies the parent-formation defect and the client-side spawning paths. The adapter now resolves parent grids and padding, publishes explicit external child/summon definitions for release clients, and includes generator-only targets in episode enemy detail. These changes are checked against installed Bastien data; actual gameplay and a complete explanation for every generator failure remain unverified.
 
 ## Who spawns the children?
 
 The client does. The server must publish complete episode enemy definitions and their supporting master data. Child spawning does not require an additional HTTP request for each child or a server timer that inserts enemies into the scene.
 
-The native client has `EnemyManager.CreateEnemyChild`, `CreateEnemyChildInternal`, `CreateEnemySummon`, and `CreateEnemyForSummon`. `EpisodeEnemyMasterData.Setup` calls `EpisodeEnemyInfo.CreateExternalEnemyInfoList`, which creates derived enemy definitions for parent children and generator targets. `CreateExternalEnemyInfo` resolves an enemy **individual** through `EnemyIndividualInfo.GetInfo`, then resolves its base enemy through `EnemyInfo.GetEnemyInfo`.
+The native client has `EnemyManager.CreateEnemyChild`, `CreateEnemyChildInternal`, `CreateEnemySummon`, and `CreateEnemyForSummon`. `EpisodeEnemyMasterData.Setup` calls `EpisodeEnemyInfo.CreateExternalEnemyInfoList` only when `EzDebugInfo.m_LocalBoot` is true. That debug-local builder creates derived enemy definitions for parent children and generator targets. Release clients obtaining network episode data require those external definitions in the response; publishing only the placed parent or generator is insufficient. `CreateExternalEnemyInfo` resolves an enemy **individual** through `EnemyIndividualInfo.GetInfo`, then resolves its base enemy through `EnemyInfo.GetEnemyInfo`.
 
 Consequently, do not replace the references in `EnemyIds` or `_summonEnemyData.EnemyId` with an arbitrary placed enemy's `_id`. Despite the network field name `SummonRule.EpisodeEnemyId`, the inspected external-definition path uses the supplied value as an enemy individual ID. A target need not have its own placed entry in the episode file.
+
+## External definitions required by release clients
+
+The child/summon references remain enemy individual IDs. A separate network enemy definition must exist for each distinct nonempty target of each parent or generator. The native lookup key is exactly:
+
+`Ext.<parent EpisodeEnemyId>.<enemy individual ID>`
+
+For example, the first barracks uses `Ext.EM_CP01_001-Barracks01.em0023_001_02`. The external row has `EnemyId = em0023_001_02`, network normal role `1`, appearance type `External = 2`, and appearance count `1`. It inherits the parent's group and scenario interval; its child and summon definitions are null. The adapter emits these records after placed definitions, deduplicates repeated target IDs within each parent, and rejects collisions with existing episode IDs.
+
+These are lookup definitions, not permanent standalone placements. Parent formation cells and the generator's count/position rules still control when and where children appear. The runtime constructs the same `Ext.` key and finds its corresponding construction data before creating a child. This is why a valid `SummonRule` and globally published individual master can still produce no soldiers when the external row is missing.
+
+The generator creation coroutine awaits parent-child creation before calling `CreateEnemySummon`. `SummonEnemyData.IsValid` requires a nonempty target; `CreateEnemyForSummon` additionally requires local or host authority. Single-player spawning should use the local authority path. These client gates must be inspected if spawning remains absent after complete external definitions are published.
 
 ## Role numbers are already correct
 
@@ -50,7 +62,7 @@ For example, the installed platoon `3_1` has two `1` cells and a `0` anchor, wit
 
 The adapter already publishes the extracted summon fields: target, initial count, minimum count, total count, offsets, ranges, named appearance point, death linkage, rotation, and additional-wave position parameters.
 
-`EnemyManager.CreateEnemySummon` checks `SummonEnemyData.IsValid`, reads `InitialAppearNum`, and calls `CreateEnemyForSummon(enemy, initialCount, false)`. The generator branch of `CreateExternalEnemyInfoList` creates a derived definition from the summon target individual. This is separate from the parent's formation grid; resolving platoon data alone is not a demonstrated fix for generator failures.
+`EnemyManager.CreateEnemySummon` checks `SummonEnemyData.IsValid`, reads `InitialAppearNum`, and calls `CreateEnemyForSummon(enemy, initialCount, false)`. The generator branch of `CreateExternalEnemyInfoList` creates a derived definition from the summon target individual. This is separate from the parent's formation grid; resolving platoon data alone does not supply the missing external summon definition. The release adapter now publishes that definition explicitly.
 
 In this installed episode, generators reference `em0023_001_02` and `em0011_001_03`. Both exist in `EnemyIndividualMasterData.json`. Neither is a matching episode `_id`; that is not, by itself, an error.
 
@@ -81,11 +93,11 @@ Native ARM64 reference points (build-specific RVAs):
 | `ChildEnemyData.GetFormationData` | `0x3611790` | Parses comma-separated numeric cells; zero anchor and one-based child indexes |
 | `EpisodeEnemyInfo.CreateExternalEnemyInfoList` | `0x3617960` | Separate parent/platoon and generator branches |
 | `EpisodeEnemyInfo.CreateExternalEnemyInfo` | `0x3617B84` | Resolves individual and base enemy masters |
-| `EpisodeEnemyMasterData.Setup` | `0x3617FD0` | Calls external-definition creation |
+| `EpisodeEnemyMasterData.Setup` | `0x3617FD0` | Calls external-definition creation only for debug-local boot |
 | `EnemyManager.CreateEnemyChild` | `0x17D7E04` | Client child-creation entry point |
 | `EnemyManager.CreateEnemySummon` | `0x17D7F78` | Starts the initial summon count through `CreateEnemyForSummon` |
 | `EnemyManager.CreateEnemyForSummon` | `0x17D5C54` | Client summon creation path |
 
-The C# dumps supply type contracts and method addresses; the parsing, lookup, and initial-summon observations above were checked against native instructions. Actual in-game child spawning after a correction remains unverified.
+The C# dumps supply type contracts and method addresses; the parsing, lookup, and initial-summon observations above were checked against native instructions. Actual in-game child spawning after the external-definition correction remains unverified; field-level and native call-chain evidence do not substitute for a gameplay check.
 
 Focused checks: `python -m unittest discover -s tests -p test_episode_enemies.py`. Set `EMBLEO_TEST_RAID_DATA` to the installed data directory to include Bastien-specific formation, summon-count and target-dependency checks. The fixture checks do not include extracted game data.
