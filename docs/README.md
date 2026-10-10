@@ -15,6 +15,8 @@ When documenting behavior, distinguish verified code/data facts from inferred ga
 
 ## Episode Systems
 
+- [Enemy Parents and Generators](episode/Enemy%20Parents%20and%20Generators.md): child formation resolution, client spawning paths, and generator investigation findings.
+
 - [Episode Gimmicks and Scenario Progression](episode/Episode%20Gimmicks%20and%20Scenario%20Progression.md): layout state, scripted gimmick operations, and battle-skip behavior.
 - [Checkpoint and Save System](episode/checkpoint%20and%20save%20system.md): episode checkpoints and save handling.
 
