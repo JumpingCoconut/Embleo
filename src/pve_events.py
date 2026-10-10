@@ -32,6 +32,16 @@ class EpisodeCatalog:
             for field in ('MinVerIOS','MinVerAndroid'):
                 _version(row[field])
 
+    def resolve_episode(self, identity):
+        """Resolve native event-link IDs to installed scenario identities."""
+        if type(identity) is not str or not identity:
+            raise ValueError('Invalid event episode identity.')
+        matches = {row['EpisodeId'] for row in self.links
+                   if identity in (row['EpisodeId'],row['EpisodePveEventId'])}
+        if len(matches) != 1:
+            raise ValueError('Event episode identity must resolve uniquely.')
+        return next(iter(matches))
+
     def episode_scope(self, event_id, difficulty, power, platform, version):
         if (type(event_id) is not str or not event_id
                 or type(difficulty) is not int or difficulty < 0

@@ -1580,3 +1580,12 @@ returns detached configured collections and performs no settlement or grant.
 An absent provider returns an unavailable response instead of inventing
 missions. The isolated no-reward trial explicitly configures four empty
 collections; production mission and guild reward policy remains separate.
+
+Android event-detail initialization indexes one `EpisodePveEvents` entry for
+ each difficulty button. Publish the complete ordered difficulty set required by
+ the installed page; a single-entry diagnostic event triggers an index error
+ before room discovery. The native create request places the selected
+ `EpisodePveEventId` in its `EpisodeId` field. HTTP admission and start resolve
+ that link identity to the installed scenario, rejecting identities that collide
+ across scenarios. Schedule and account eligibility still use the installed
+ scenario identity.

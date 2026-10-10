@@ -44,6 +44,16 @@ class EventTests(unittest.TestCase):
         return dict(EpisodePveEventId='link',EventId='event',EpisodeId='episode',
                     RequiredPower=100,Difficulty=2,MinVerIOS='1.6.0',MinVerAndroid='1.5.0')
 
+    def test_native_link_resolution_rejects_cross_scenario_identity_collision(self):
+        catalog = EpisodeCatalog([self.link(),dict(self.link(),
+            EpisodePveEventId='episode',EpisodeId='other')],{'episode','other'})
+        self.assertEqual(catalog.resolve_episode('link'),'episode')
+        self.assertEqual(catalog.resolve_episode('other'),'other')
+        with self.assertRaises(ValueError):
+            catalog.resolve_episode('episode')
+        with self.assertRaises(ValueError):
+            catalog.resolve_episode('unpublished')
+
     def test_runtime_admission_rechecks_current_schedule_and_server_owned_power(self):
         from prizm_room_service import RoomService
         from prizm_rooms import Rooms, RoomError
@@ -70,7 +80,8 @@ class EventTests(unittest.TestCase):
         self.assertNotIn('failed-host',rooms.memberships)
         self.assertFalse(any(value[0].account_id == 'failed-host' for value in service.registry.credentials.values()))
         service.connection_provider = lambda room,tcp,udp:dict(RoomId=room['RoomId'],JwtTcp=tcp,JwtUdp=udp,SearchId='search',Tcp='localhost:1234',Udp='localhost:1235')
-        response = service.create_http('http-host','episode','v',1)['Prizm']
+        response = service.create_http('http-host','link','v',1)['Prizm']
+        self.assertEqual(rooms.rooms[response['RoomId']]['EpisodeId'],'episode')
         self.assertEqual(service.registry.open(response['JwtTcp']).admission.account_id,'http-host')
         created = service.create_event(player('new-host'),'episode','v',2)[0]
         self.assertTrue(created['IsPrivate'])

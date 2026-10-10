@@ -174,6 +174,8 @@ class RoomService:
         player = self.player_provider(account_id)
         if player.get('UserId') != account_id:
             raise RoomError('Player provider returned a different account.')
+        if self.event_catalog is not None:
+            episode_id = self.event_catalog.episodes.resolve_episode(episode_id)
         room,tcp,udp = self.create_event(player,episode_id,version,public_level)
         return self._http_admission(account_id,room,tcp,udp)
 
@@ -249,6 +251,8 @@ class RoomService:
             return self.join_checked(room_id,player,version,route,scope)
 
     def start_http(self, account_id, episode_id, character_id, member_ids, member_character_ids):
+        if self.event_catalog is not None:
+            episode_id = self.event_catalog.episodes.resolve_episode(episode_id)
         return self.rooms.start_response(account_id,episode_id,character_id,
                                          member_ids,member_character_ids)
 
