@@ -395,8 +395,12 @@ independent HTTP/transport workers.
 `SearchId`. `PrizmManager.<Connect>d__102.MoveNext` at `0x1B6FF84` passes the
 credentials and addresses into Prizm. `ServerEndPoint(string)` at `0x1B17B58`
 splits on the last colon and parses the port: use `host:port`, without URL
-schemes or paths. SearchId semantics and public endpoint configuration remain
-unverified. Preserve certificate verification; the unencrypted application
+schemes or paths. Native `UILayoutPvERoom.setRoomId` reads SearchId and displays
+`Substring(0, 3)` followed by `Substring(3, 4)` (calls at `0x3269740`
+and `0x32697AC`). SearchId therefore needs at least seven characters;
+shorter codes throw before room polling. The admission builder and HTTP
+provider validation reject them. Search lookup/uniqueness and public endpoint
+configuration remain operator responsibilities. Preserve certificate verification; the unencrypted application
 session flag does not replace TLS.
 
 The lobby caller `UILayoutPvERoom.<execute>d__36.MoveNext` at `0x3179568`
@@ -553,7 +557,7 @@ listener-side provider, checks that its UserId matches the authenticated caller,
 uses scheduled create_event admission, then builds Prizm through a configured
 connection provider. RoomId and both returned credentials must match the actual
 admission; response-construction failure removes membership and revokes issued
-credentials. SearchId remains provider-supplied pending native semantics.
+credentials. SearchId remains provider-supplied and must satisfy native display length.
 The native declaration alone does not justify treating SearchId as RoomId.
 Configured POST `/api/pve/create` accepts EpisodeId, PublicLevel and PveVersion.
 Configured POST `/api/pve/join` accepts RoomId, JoinRoute and PveVersion, matching

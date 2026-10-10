@@ -230,7 +230,8 @@ class RoomService:
             if (type(connection) is not dict or connection.get('RoomId') != room['RoomId']
                     or connection.get('JwtTcp') != tcp or connection.get('JwtUdp') != udp
                     or any(type(connection.get(field)) is not str or not connection[field]
-                           for field in ('SearchId','Tcp','Udp'))):
+                           for field in ('SearchId','Tcp','Udp'))
+                    or len(connection['SearchId']) < 7):
                 raise RoomError('Invalid server connection response.')
             return {'Prizm':connection}
         except Exception:

@@ -79,7 +79,11 @@ class EventTests(unittest.TestCase):
         with self.assertRaises(RoomError): service.create_http('failed-host','episode','v',1)
         self.assertNotIn('failed-host',rooms.memberships)
         self.assertFalse(any(value[0].account_id == 'failed-host' for value in service.registry.credentials.values()))
-        service.connection_provider = lambda room,tcp,udp:dict(RoomId=room['RoomId'],JwtTcp=tcp,JwtUdp=udp,SearchId='search',Tcp='localhost:1234',Udp='localhost:1235')
+        service.connection_provider = lambda room,tcp,udp:dict(RoomId=room['RoomId'],JwtTcp=tcp,JwtUdp=udp,SearchId='trial',Tcp='localhost:1234',Udp='localhost:1235')
+        with self.assertRaises(RoomError): service.create_http('short-code-host','episode','v',1)
+        self.assertNotIn('short-code-host',rooms.memberships)
+        self.assertFalse(any(value[0].account_id == 'short-code-host' for value in service.registry.credentials.values()))
+        service.connection_provider = lambda room,tcp,udp:dict(RoomId=room['RoomId'],JwtTcp=tcp,JwtUdp=udp,SearchId='1234567',Tcp='localhost:1234',Udp='localhost:1235')
         response = service.create_http('http-host','link','v',1)['Prizm']
         self.assertEqual(rooms.rooms[response['RoomId']]['EpisodeId'],'episode')
         self.assertEqual(service.registry.open(response['JwtTcp']).admission.account_id,'http-host')

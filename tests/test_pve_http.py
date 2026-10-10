@@ -53,7 +53,7 @@ class HttpRuntimeTests(unittest.IsolatedAsyncioTestCase):
             room_settings_provider=lambda episode:dict(Mode=1,SuspendLimits=(60,3,20)),
             room_view_provider=lambda viewer,room:room_view(room,100,2,'','',False,False,1234),
             player_provider=player,connection_provider=lambda room,tcp,udp:admission_payload(
-                room['RoomId'],'search',tcp,udp,'localhost',1234,'localhost',1235))
+                room['RoomId'],'1234567',tcp,udp,'localhost',1234,'localhost',1235))
         runtime.listener.start = AsyncMock(return_value=['socket'])
         await runtime.start('localhost',1234,None)
         try:
