@@ -28,12 +28,16 @@ class HealthTests(unittest.TestCase):
                 self.assertEqual(connection.execute('SELECT * FROM accounts').fetchall(),[('a','code',123)])
 
     def test_health_is_public_and_redacts_write_failure(self):
-        with patch('server.database_ready',side_effect=sqlite3.OperationalError('private database path: disk full')):
-            result = server.app.test_client().get('/healthz')
-        self.assertEqual(result.status_code,503)
-        self.assertEqual(result.json,{'online':False})
-        self.assertNotIn(b'private',result.data)
-        with patch('server.database_ready'):
-            result = server.app.test_client().get('/healthz')
-        self.assertEqual(result.status_code,200)
-        self.assertEqual(result.json,{'online':True})
+        for path in ('/healthz','/api/game/health'):
+            with self.subTest(path=path), patch('server.AccountStore') as authentication:
+                with patch('server.database_ready',side_effect=sqlite3.OperationalError('private database path: disk full')):
+                    result = server.app.test_client().get(path)
+                self.assertEqual(result.status_code,503)
+                self.assertEqual(result.json,{'online':False})
+                self.assertNotIn(b'private',result.data)
+                with patch('server.database_ready') as readiness:
+                    result = server.app.test_client().get(path)
+                self.assertEqual(result.status_code,200)
+                self.assertEqual(result.json,{'online':True})
+                readiness.assert_called_once_with(server.app.config['ACCOUNT_DB'])
+                authentication.assert_not_called()

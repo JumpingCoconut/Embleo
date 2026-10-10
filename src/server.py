@@ -73,6 +73,7 @@ app.config["ONLINE_TIMEOUT_SECONDS"] = 300
 
 # These constructors explicitly disable authentication in the original client.
 PUBLIC_API_PATHS = frozenset({
+	"/api/game/health",
 	"/api/game/heartbeat", "/api/game/provision", "/api/log/anonymous-action",
 	"/api/privacy-policy/get-terms-url", "/api/server-message/anonymous-list",
 	"/api/user/get-bnid-migration-info", "/api/user/bnid-migration",
@@ -81,6 +82,7 @@ PUBLIC_API_PATHS = frozenset({
 
 
 @app.route('/healthz', methods=['GET'])
+@app.route('/api/game/health', methods=['GET'])
 def readiness():
 	try:
 		database_ready(app.config['ACCOUNT_DB'])
@@ -124,7 +126,7 @@ def finish_account_request(response):
 			store.connection.rollback()
 		if getattr(g, "issued_token", None) and response.status_code < 400:
 			response.headers["Authorization"] = "Bearer " + g.issued_token
-	if request.path.startswith("/api/") and response.status_code < 400:
+	if request.path.startswith("/api/") and request.path != "/api/game/health" and response.status_code < 400:
 		response.content_type = "application/x-msgpack"
 	if getattr(g, "account_id", None):
 		response.headers["Cache-Control"] = "no-store"
