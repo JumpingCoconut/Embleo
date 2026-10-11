@@ -2,6 +2,8 @@
 
 import asyncio
 from concurrent.futures import Future
+import os
+from pathlib import Path
 import threading
 from pve_http import PveHttp
 
@@ -84,20 +86,66 @@ def attach_runtime(app, owner, host, port, tls):
     app.extensions['pve_runtime'] = owner
 
 
-def run_http(app, **http_options):
-    """Own the configured raid listener for the lifetime of Flask serving."""
+def load_operator_config(app, path=None):
+    """Load explicit private configuration; never start a listener."""
+    path = path if path is not None else os.environ.get('EMBLEO_PVE_CONFIG')
+    if path:
+        app.config.from_pyfile(str(Path(path).resolve()))
+
+
+def start_configured_runtime(app):
+    """Explicit process startup, after configuration and before HTTP serving."""
+    if app.config.get('PVE_HTTP') is not None or 'pve_runtime' in app.extensions:
+        raise RuntimeError('PvE runtime is already attached.')
     factory = app.config.get('PVE_RUNTIME_FACTORY')
     if factory is None:
-        return app.run(**http_options)
+        if app.config.get('PVE_PUBLICATION') is not None:
+            raise ValueError('Raid publication requires a configured runtime.')
+        return None
     if not callable(factory):
         raise ValueError('PVE_RUNTIME_FACTORY must construct the configured runtime.')
+    # Validate configuration before allocating the event-loop thread.
+    host, port, tls = (app.config[key] for key in
+                      ('PVE_BIND_HOST','PVE_BIND_PORT','PVE_TLS'))
     owner = RuntimeHost(factory)
-    attach_runtime(app, owner, app.config['PVE_BIND_HOST'],
-                   app.config['PVE_BIND_PORT'], app.config['PVE_TLS'])
+    attach_runtime(app, owner, host, port, tls)
+    return owner
+
+
+def stop_configured_runtime(app):
+    """Explicit worker shutdown; idempotent after complete cleanup."""
+    owner = app.extensions.get('pve_runtime')
+    if owner is None:
+        return
+    try:
+        owner.stop()
+    finally:
+        app.config.pop('PVE_HTTP',None)
+        app.extensions.pop('pve_runtime',None)
+
+
+def start_wsgi_runtime(app, *, workers, preload_app, config_path=None):
+    """Call in the owning WSGI worker, never in the pre-fork master.
+
+    The caller supplies actual server settings, not assumed defaults. A private
+    Gunicorn post_worker_init hook can call this and worker_exit can call
+    stop_configured_runtime. Graceful overlapping worker reloads need a separate
+    listener handover strategy; this in-process runtime has one owner.
+    """
+    load_operator_config(app, config_path)
+    if app.config.get('PVE_RUNTIME_FACTORY') is not None:
+        if type(workers) is not int or workers != 1 or preload_app is not False:
+            raise ValueError('Raid runtime requires one worker without preloading.')
+    return start_configured_runtime(app)
+
+
+def run_http(app, **http_options):
+    """Own the configured raid listener for the lifetime of Flask serving."""
+    owner = start_configured_runtime(app)
+    if owner is None:
+        return app.run(**http_options)
     try:
         # The reloader forks/reimports the server; room state must have one owner.
         return app.run(**(http_options | {'use_reloader':False}))
     finally:
-        app.config.pop('PVE_HTTP',None)
-        app.extensions.pop('pve_runtime',None)
-        owner.stop()
+        stop_configured_runtime(app)

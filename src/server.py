@@ -2116,8 +2116,6 @@ if __name__ == "__main__":
 	
 	# Private operator configuration supplies installed providers and TLS.
 	# Importing this module for tests never starts a transport listener.
-	pve_config = os.environ.get("EMBLEO_PVE_CONFIG")
-	if pve_config:
-		app.config.from_pyfile(str(Path(pve_config).resolve()))
-	from prizm_host import run_http
+	from prizm_host import load_operator_config, run_http
+	load_operator_config(app)
 	run_http(app, host="0.0.0.0", port=5001, debug=True)

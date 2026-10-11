@@ -1506,6 +1506,35 @@ raids are configured, and clears the adapter/stops transport when serving exits.
 Module import does not open listeners. Runtime remains disabled without this
 explicit configuration, and installed provider assembly still needs work.
 
+WSGI hosts can use the same explicit lifecycle. `load_operator_config(app)`
+loads `EMBLEO_PVE_CONFIG` without starting transport. In a private Gunicorn
+configuration, initialize the listener after the worker has loaded its app:
+
+```python
+workers = 1
+preload_app = False
+
+def post_worker_init(worker):
+    from prizm_host import start_wsgi_runtime
+    start_wsgi_runtime(worker.wsgi, workers=worker.cfg.workers,
+                       preload_app=worker.cfg.preload_app)
+
+def worker_exit(server, worker):
+    from prizm_host import stop_configured_runtime
+    if getattr(worker, 'wsgi', None) is not None:
+        stop_configured_runtime(worker.wsgi)
+```
+
+The helper rejects a configured raid runtime with multiple workers or app
+preloading, and rejects event publication without a runtime factory. Startup
+errors prevent serving a partly configured worker. Shutdown removes the HTTP
+bridge and stops its owning event loop. Do not initialize transport in the
+pre-fork master or through ordinary module imports. Overlapping graceful worker
+reloads require a separate listener handover strategy; otherwise use a process
+replacement that releases the transport port before starting its successor.
+Operator configuration, certificates and account/event policy stay outside the
+repository. This hook does not provide those policies or network routing.
+
 installed_battle_assembler loads character/equipment/buff/curve masters and
 the normal episode master group from one installed data root. The curves and
 buffs transmitted to clients are the same detached inputs used by the server
