@@ -18,6 +18,47 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
+    def test_settled_disconnected_member_expires_without_dropping_unsettled_peer(self):
+        now = [0]
+        registry = SessionRegistry(clock=lambda:now[0],session_timeout=10,reconnect=True)
+        rooms = Rooms(4)
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        host = Connection(registry,service)
+        host.receive(hello_request(tcp))
+        _,peer_tcp,_ = service.join(room['RoomId'],player('bob'),'v')
+        peer = Connection(registry,service)
+        peer.receive(hello_request(peer_tcp))
+        current = rooms.rooms[room['RoomId']]
+        current.update(Status=1,PreparedBattle={'alice':{},'bob':{}},
+                       BattleRoster={'alice':'pl001','bob':'pl001'},GameOver={1:1},
+                       Completions={'alice':('identity',{})})
+        host.close()
+        peer.close()
+        now[0] = 9
+        service.expire_lobbies()
+        self.assertEqual(rooms.memberships['alice'],room['RoomId'])
+        now[0] = 10
+        service.expire_lobbies()
+        self.assertNotIn('alice',rooms.memberships)
+        self.assertEqual(rooms.memberships['bob'],room['RoomId'])
+        self.assertEqual(current['BattleRoster'],{'alice':'pl001','bob':'pl001'})
+        with self.assertRaises(SessionError): registry.open(tcp)
+        new,_,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        self.assertNotEqual(new['RoomId'],room['RoomId'])
+
+    def test_settled_active_member_is_not_expired(self):
+        rooms,registry = Rooms(4),SessionRegistry(reconnect=True)
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        connection = Connection(registry,service)
+        connection.receive(hello_request(tcp))
+        rooms.rooms[room['RoomId']].update(Status=1,PreparedBattle={'alice':{}},
+            GameOver={1:1},Completions={'alice':('identity',{})})
+        service.expire_lobbies()
+        self.assertEqual(rooms.memberships['alice'],room['RoomId'])
+        self.assertFalse(connection.closed)
+
     def test_pending_actions_are_bounded_expire_and_only_flush_for_creator(self):
         rooms = Rooms(4)
         service = RoomService(rooms,SessionRegistry())

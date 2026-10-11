@@ -111,6 +111,16 @@ class CompletionTests(unittest.TestCase):
         with self.assertRaises(RoomError):
             service.complete_http('alice',dict(EpisodeToken='token-alice',Playlog='opaque'),True)
         self.assertNotIn('bob',live['Completions'])
+        bob_request = dict(EpisodeToken='token-bob',Playlog='',
+                           ResultHash=native_result_hash('battle',True))
+        service.complete_http('bob',bob_request)
+        self.assertTrue(rooms.reopen_completed(live))
+        live['PreparedBattle'] = {'alice':dict(EpisodeToken='next-token',BattleId='next-battle')}
+        self.assertEqual(service.complete_http('alice',request)['Rewards'],[])
+        self.assertEqual(provider.call_count,2)
+        self.assertNotIn('Completions',live)
+        with self.assertRaises(RoomError):
+            service.complete_http('alice',request | {'ResultHash':'changed'})
 
     def test_retire_failure_and_bounded_contract_do_not_record_completion(self):
         rooms = Rooms(1)

@@ -109,8 +109,8 @@ class RoomService:
     def expire_lobbies(self):
         """Release abandoned lobbies after their actual reconnect window ends.
 
-        Prepared battles retain membership for start retries and completion.
-        Their suspension/outcome policy is separate from lobby admission expiry.
+        Unsettled prepared battles retain membership for start retries and
+        completion. Settled results retain it through the reconnect window.
         """
         active = self.registry.active_admissions()
         with self.rooms.lock:
@@ -119,8 +119,10 @@ class RoomService:
                     self.admissions.discard((account_id, room_id))
                     continue
                 room = self.rooms.rooms[room_id]
-                if ('PreparedBattle' not in room and room['Status'] == 0
-                        and (account_id, room_id) not in active):
+                open_lobby = 'PreparedBattle' not in room and room['Status'] == 0
+                settled = ('GameOver' in room
+                           and account_id in room.get('Completions',{}))
+                if (open_lobby or settled) and (account_id, room_id) not in active:
                     self.leave(account_id, room_id)
 
     def broadcast(self, room, notification, exclude=None, service=1000, recipient=None,
@@ -367,6 +369,14 @@ class RoomService:
             room_id = self.rooms.memberships.get(account_id)
             room = self.rooms.rooms.get(room_id)
             prepared = room.get('PreparedBattle',{}).get(account_id) if room else None
+            if room is not None and (prepared is None or not secrets.compare_digest(
+                    prepared['EpisodeToken'].encode('utf-8'),request['EpisodeToken'].encode('utf-8'))):
+                previous_room = room.get('PreviousBattle',{})
+                previous_prepared = previous_room.get('PreparedBattle',{}).get(account_id)
+                if previous_prepared is not None and secrets.compare_digest(
+                        previous_prepared['EpisodeToken'].encode('utf-8'),
+                        request['EpisodeToken'].encode('utf-8')):
+                    room,prepared = previous_room,previous_prepared
             if (prepared is None or not secrets.compare_digest(
                     prepared['EpisodeToken'].encode('utf-8'),request['EpisodeToken'].encode('utf-8'))):
                 raise RoomError('Completion token does not belong to this account battle.')

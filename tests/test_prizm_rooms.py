@@ -10,6 +10,38 @@ from test_prizm_lobby import player
 
 
 class RoomTests(unittest.TestCase):
+    def test_completed_battle_accepts_unready_without_discarding_preparation(self):
+        rooms, registry = Rooms(2), SessionRegistry()
+        room_id = self.create(rooms)
+        tcp, _ = registry.issue('alice',room_id,1)
+        host = registry.open(tcp)
+        response = dict(EpisodeToken='token',BattleId='battle',CharacterDetail={},
+            EnemyDetail={},EpisodeDetail={},EpisodeDetailUser={},MasterGroup={},
+            LimitTime=60,BgmId='bgm')
+        rooms.prepare_battle(host,lambda room:{'alice':response})
+        with self.assertRaises(RoomError): rooms.ready(host,'alice',0)
+        room = rooms.rooms[room_id]
+        room['GameOver'] = {1:1,2:[],3:'',4:0}
+        frozen = room['BattleRoster'].copy()
+        rooms.ready(host,'alice',0)
+        self.assertEqual(room['Players'][0]['Ready'],0)
+        self.assertEqual(room['BattleRoster'],frozen)
+        self.assertEqual(room['PreparedBattle']['alice'],response)
+        self.assertEqual(rooms.start_response('alice','episode','pl001',
+            ['alice'],['pl001']),response)
+        with self.assertRaises(RoomError): rooms.ready(host,'alice',1)
+        with self.assertRaises(RoomError): rooms.ready(host,'bob',0)
+        room['Completions'] = {'alice':('identity',{'Result':1})}
+        rooms.ready(host,'alice',1)
+        self.assertNotIn('PreparedBattle',room)
+        self.assertEqual(room['PreviousBattle']['PreparedBattle']['alice'],response)
+        self.assertEqual(room['PreviousBattle']['BattleRoster'],frozen)
+        self.assertEqual(room['Players'][0]['Ready'],1)
+        next_response = response | {'EpisodeToken':'next-token','BattleId':'next-battle'}
+        rooms.prepare_battle(host,lambda room:{'alice':next_response})
+        self.assertEqual(room['PreparedBattle']['alice'],next_response)
+        self.assertEqual(room['PreviousBattle']['PreparedBattle']['alice'],response)
+
     def test_prepared_start_roster_survives_other_member_departure(self):
         rooms, registry = Rooms(2), SessionRegistry()
         room_id = self.create(rooms)

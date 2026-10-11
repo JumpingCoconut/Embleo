@@ -151,6 +151,23 @@ class Rooms:
                 raise RoomError('Room no longer exists.')
             return copy.deepcopy(room)
 
+    def reopen_completed(self, room):
+        """Open the next lobby only after its remaining players have settled."""
+        members = {player['UserId'] for player in room['Players']}
+        if ('PreparedBattle' not in room or 'GameOver' not in room
+                or not members <= set(room.get('Completions',{}))):
+            return False
+        room['PreviousBattle'] = copy.deepcopy({key:value for key,value in room.items()
+                                               if key != 'PreviousBattle'})
+        for key in ('PreparedBattle','BattleRoster','BattleCharacters','GameOver','Completions',
+                    'PlayerObjects','EnemyObjects','MinionObjects','DestroyedObjects',
+                    'ObjectStatuses','ObjectBuffs','LoadStatuses','PendingBattleActions'):
+            room.pop(key,None)
+        room['Status'] = 0
+        for player in room['Players']:
+            player['Ready'] = 0
+        return True
+
     def change_character(self, session, player):
         player_payload(player)
         account = session.admission.account_id
@@ -159,6 +176,7 @@ class Rooms:
         with self.lock:
             self.snapshot(session,5,False)
             room = self.rooms[session.admission.room_id]
+            self.reopen_completed(room)
             if room['Status'] != 0 or 'PreparedBattle' in room:
                 raise RoomError('Lobby is no longer open.')
             current = next(entry for entry in room['Players'] if entry['UserId'] == account)
@@ -176,7 +194,10 @@ class Rooms:
         with self.lock:
             self.snapshot(session,7,False)
             room = self.rooms[session.admission.room_id]
-            if room['Status'] != 0 or 'PreparedBattle' in room:
+            if ready:
+                self.reopen_completed(room)
+            completed_reset = ready == 0 and 'GameOver' in room and 'PreparedBattle' in room
+            if (room['Status'] != 0 or 'PreparedBattle' in room) and not completed_reset:
                 raise RoomError('Lobby is no longer open.')
             entry = next(player for player in room['Players'] if player['UserId'] == user_id)
             if ready and not entry['CharacterId']:
@@ -194,6 +215,9 @@ class Rooms:
             room = self.snapshot(session,9,False)
             host = next(entry for entry in room['Players']
                         if entry['UserId'] == session.admission.account_id)
+            if host['IsHost']:
+                self.reopen_completed(self.rooms[session.admission.room_id])
+                room = self.snapshot(session,9,False)
             if not host['IsHost'] or room['Status'] != 0 or 'PreparedBattle' in room:
                 raise RoomError('Only the host of an open lobby can prepare battle.')
             if any(not entry['CharacterId'] for entry in room['Players']):
