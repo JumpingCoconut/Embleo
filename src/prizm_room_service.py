@@ -642,6 +642,15 @@ class RoomService:
                     guid = request[2 if command == 22 else 3][1]
                     owner = self._object(current,guid)
                     if 'PreparedBattle' not in room:
+                        previous = current.get('PreviousBattle',{})
+                        previous_owner = self._object(previous,guid)
+                        if (command == 22 and current.get('Status') == 0
+                                and previous_owner is not None
+                                and previous_owner[0] == session.admission.account_id
+                                and session.admission.account_id in previous.get('Completions',{})):
+                            # A settled client's final heartbeat may follow Reset.
+                            # Ignore only its own retained previous-battle object.
+                            return []
                         raise RoomError('Unknown battle object.')
                     if command == 22 and owner is None:
                         # Periodic native heartbeats can outlive a battle's
@@ -695,7 +704,8 @@ class RoomService:
                             and guid not in current.get('DestroyedObjects',{})):
                         self._defer_action(current,session.admission.account_id,guid,request)
                         return []
-                    if 'PreparedBattle' not in room or owner is None or owner[0] != session.admission.account_id:
+                    account = session.admission.account_id
+                    if 'PreparedBattle' not in room or owner is None:
                         raise RoomError('Action sender does not own this object.')
                     if command == 16:
                         credit = (request.get(5) or {}).get(1,'')
@@ -707,6 +717,18 @@ class RoomService:
                                 referenced = reference[1]
                                 if self._object(current,referenced) is None:
                                     raise RoomError('Reflection references an unknown room object.')
+                        # Native ReflectParam addresses the receiving object,
+                        # which may belong to another peer (guest hitting boss).
+                        # Authenticate the reflector, not ownership of the target.
+                        source = (request.get(2) or {}).get(1) or {}
+                        source_guid = source.get(1)
+                        if source_guid and source_guid != bytes(16):
+                            if self._object(current,source_guid)[0] != account:
+                                raise RoomError('Reflection sender does not own the reflector.')
+                        elif owner[0] != account:
+                            raise RoomError('Remote reflection requires an owned reflector.')
+                    elif owner[0] != account:
+                        raise RoomError('Action sender does not own this object.')
                     self.broadcast(room,object_action_notification(command,request),
                                    exclude=session.admission.account_id,service=BATTLE_SERVICE)
                 return []

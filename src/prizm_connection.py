@@ -14,6 +14,7 @@ from prizm_protocol import (FrameDecoder, Opcode, ProtocolError,
                             read_hello_request, read_fallback_request,
                             handshake_response, read_user_message, user_message, ping_reply)
 from prizm_sessions import SessionError
+from prizm_rooms import RoomError
 
 
 class Connection:
@@ -170,7 +171,7 @@ class Connection:
                 else:
                     # Alert handling still needs its native semantics.
                     raise ProtocolError('Unsupported opcode for connection state.')
-        except (ProtocolError, SessionError) as error:
+        except (ProtocolError, SessionError, RoomError) as error:
             self.rejection_context = operation + "_reason_" + rejection_reason(error)
             self.close()
             raise

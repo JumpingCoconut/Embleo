@@ -18,6 +18,54 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
+    def test_damage_reflection_authenticates_source_for_remote_target(self):
+        rooms,registry = Rooms(4),SessionRegistry()
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        host = Connection(registry,service)
+        host.receive(hello_request(tcp))
+        _,tcp,_ = service.join(room['RoomId'],player('bob'),'v')
+        guest = Connection(registry,service)
+        guest.receive(hello_request(tcp))
+        host.notifications()
+        guest.notifications()
+        host_guid,guest_guid,boss_guid = (bytes([n])*16 for n in (1,2,3))
+        current = rooms.rooms[room['RoomId']]
+        current.update(PreparedBattle={'alice':{'BattleId':'battle'},'bob':{'BattleId':'battle'}},
+                       PlayerObjects={host_guid:('alice',{}),guest_guid:('bob',{})},
+                       EnemyObjects={boss_guid:('alice',{})})
+        def reflection(target,source,credit):
+            return {1:{1:target},2:{1:{1:source}},3:{1:{1:target}},4:{3:100},5:{1:credit,2:100}}
+        for sender,recipient,target,source,credit in (
+                (guest,host,boss_guid,guest_guid,'bob'),
+                (host,guest,guest_guid,boss_guid,'alice')):
+            request = reflection(target,source,credit)
+            service(sender.session,2000,command_message(16,msgpack.packb(request)),True)
+            notifications = recipient.notifications()
+            self.assertEqual(len(notifications),1)
+            sid,body = read_user_message(FrameDecoder().feed(notifications[0])[0][1])
+            command,payload = read_command_message(body)
+            self.assertEqual((sid,command),(2000,17))
+            self.assertEqual(msgpack.unpackb(payload,raw=False,strict_map_key=False),request)
+            self.assertEqual(sender.notifications(),[])
+        for request in (reflection(boss_guid,host_guid,'bob'),
+                        reflection(boss_guid,bytes([9])*16,'bob'),
+                        reflection(bytes([9])*16,guest_guid,'bob'),
+                        reflection(boss_guid,bytes(16),'bob'),
+                        reflection(boss_guid,guest_guid,'outsider'),
+                        {1:{1:boss_guid},4:{3:100}}):
+            with self.assertRaises(RoomError):
+                service(guest.session,2000,command_message(16,msgpack.packb(request)),True)
+        self.assertEqual(host.notifications(),[])
+        # Source-less local effects retain their existing owner authorization.
+        service(host.session,2000,command_message(16,msgpack.packb({1:{1:boss_guid},4:{3:100}})),True)
+        self.assertEqual(len(guest.notifications()),1)
+        # Remote damage does not grant movement or HP-update ownership.
+        for command,request,reliable in ((4,{1:{1:boss_guid}},True),
+                                         (2,{1:{1:boss_guid},2:{1:1.0}},False)):
+            with self.assertRaises(RoomError):
+                service(guest.session,2000,command_message(command,msgpack.packb(request)),reliable)
+
     def test_battle_relays_do_not_copy_frozen_master_data(self):
         class FrozenMasterData:
             def __deepcopy__(self, memo):
@@ -118,6 +166,8 @@ class RoomServiceTests(unittest.TestCase):
         with self.assertRaises(RoomError): service(connection.session,1000,body,True)
         current.update(Status=1,PreparedBattle={'alice':{'EpisodeToken':'token'}},
                        GameOver={1:1},Completions={'alice':('identity',{})})
+        guid = bytes(range(16))
+        current['PlayerObjects'] = {guid:('alice',{})}
         for invalid in ([],{1:1},None):
             with self.assertRaises(ProtocolError):
                 service(connection.session,1000,command_message(11,msgpack.packb(invalid)),True)
@@ -128,6 +178,17 @@ class RoomServiceTests(unittest.TestCase):
         self.assertIn('alice',current['PreviousBattle']['Completions'])
         self.assertEqual(current['Players'][0]['Ready'],0)
         self.assertEqual(connection.notifications(),[])
+        heartbeat = command_message(22,msgpack.packb({1:'alice',2:{1:guid}}))
+        with patch.object(service,'broadcast') as broadcast:
+            self.assertEqual(service(connection.session,2000,heartbeat,True),[])
+            broadcast.assert_not_called()
+        unknown = command_message(22,msgpack.packb({1:'alice',2:{1:b'x'*16}}))
+        with self.assertRaises(RoomError):
+            service(connection.session,2000,unknown,True)
+        current['PreviousBattle']['PlayerObjects'][guid] = ('bob',{})
+        with self.assertRaises(RoomError):
+            service(connection.session,2000,heartbeat,True)
+        current['PreviousBattle']['PlayerObjects'][guid] = ('alice',{})
         import copy
         before = copy.deepcopy(current)
         self.assertEqual(service(connection.session,1000,body,True),[])
@@ -526,7 +587,7 @@ class RoomServiceTests(unittest.TestCase):
         self.assertEqual((sid,command),(2000,3))
         self.assertEqual(msgpack.unpackb(payload,strict_map_key=False),updated)
         self.assertEqual(rooms.rooms[room['RoomId']]['ObjectStatuses'][creation[1][1]],updated)
-        reflection = {1:creation[1],2:{1:creation[1]},3:{1:enemy[1]},4:{},5:{1:'alice',2:100}}
+        reflection = {1:enemy[1],2:{1:creation[1]},3:{1:enemy[1]},4:{},5:{1:'alice',2:100}}
         for altered in (reflection | {5:{1:'outsider',2:100}},
                         reflection | {3:{1:{1:bytes(range(2,18))}}}):
             with self.assertRaises(RoomError):

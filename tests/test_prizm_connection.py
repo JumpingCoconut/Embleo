@@ -119,6 +119,18 @@ class ConnectionTests(unittest.TestCase):
                 self.assertTrue(context.startswith('transport_reason_'))
             self.assertTrue(self.connection.closed)
 
+    def test_expected_room_rejection_is_classified_but_programming_errors_propagate(self):
+        from prizm_rooms import RoomError
+        for error in (RoomError('Unknown battle object.'), ValueError('implementation failure')):
+            self.setUp()
+            self.connection.receive(hello_request(self.tcp))
+            self.handler.side_effect = error
+            with self.assertRaises(type(error)):
+                self.connection.receive(user_message(2000,struct.pack('<h',22)))
+            self.assertTrue(self.connection.closed)
+            if isinstance(error,RoomError):
+                self.assertTrue(self.connection.rejection_context.startswith('service_2000_command_22_reason_'))
+
     def setUp(self):
         self.registry = SessionRegistry()
         self.tcp, self.udp = self.registry.issue('alice', 'room', 1)

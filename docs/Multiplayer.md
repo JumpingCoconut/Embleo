@@ -1727,6 +1727,34 @@ queued action after authorization; other senders' claims and stale actions are
 discarded. Damage reflection also permits a null damage-credit user ID, while
 supplied credits still require room membership.
 
+Damage reflection command 16 addresses the **receiving** object's GUID, not
+the sender's object. `GameNetworkManager.SendAction_ReflectParam` (`0x2FF76C0`)
+skips network reflection for a locally owned receiver (`0x2FF7734`), and passes
+the remote receiver's ObjectNetUID at offset `0x28` to
+`PrizmInGameProcessor.ReflectParam` (`0x1B6B4F8`, call `0x2FF797C`). That processor
+converts this UID into request field 1; reflector and receiver references are
+separate fields 2 and 3. Requiring sender ownership of field 1 rejects a guest
+attacking a host-owned boss. The service instead requires a registered target
+and sender ownership of the nonempty reflector GUID in field 2. Source-less
+reflections require target ownership. Both references must remain in the room;
+movement, HP updates, spawning and final outcome ownership are unchanged.
+TLS regression tests send guest damage with the boss as field 1 and the guest
+player as the reflector, preserving the complete notification for the host.
+
+### Separate native combat exception
+
+A solo Android raid reproduced repeated `NullReferenceException` events in
+`GunAttackClipSettings.CopyFromMaster` (`0x3521634`). The shared throw at
+`0x35217F0` returns to `0x35217F4`, which is also the next method's start; map
+the call instruction, not that next method. A bounded local probe identified
+the caller as `SequenceMasterData.GetGunAttackClipSettings` (return
+`0x2F6B8D4`) and established that the master effect object was present while
+the destination `effectSettings` at offset `0xA8` was null (`0x35216B8`).
+This is distinct from the HTTP lobby event-ID projection and transport loss.
+Changing stage IDs or synthesizing server attack data does not initialize
+that destination object. Client repair and APK validation belong to the
+separate local APK project; two-device gameplay acceptance is still required.
+
 ## Two-client playtest
 
 ### Difficulty bindings

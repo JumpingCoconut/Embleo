@@ -7,6 +7,7 @@ from itertools import islice
 from prizm_connection import Connection
 from prizm_protocol import ProtocolError
 from prizm_sessions import SessionError
+from prizm_rooms import RoomError
 from prizm_diagnostics import Diagnostics
 
 
@@ -107,7 +108,7 @@ class Listener:
                     await write(connection.receive_frames(batch) + connection.notifications())
                     # Even send-only coalesced reads must yield to recipients.
                     await asyncio.sleep(0)
-        except ProtocolError:
+        except (ProtocolError, RoomError):
             self.diagnostics.record('protocol_rejected', connection.rejection_context
                                     if connection is not None else 'transport')
         except SessionError:

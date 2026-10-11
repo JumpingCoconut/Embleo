@@ -504,7 +504,7 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
                 # Both admitted players can relay damage reflections to the
                 # host-owned enemy; ownership of the attacker stays enforced.
                 for sender in (1,0):
-                    reflection = {1:creations[sender][1],2:{1:creations[sender][1]},
+                    reflection = {1:enemy[1],2:{1:creations[sender][1]},
                                   3:{1:enemy[1]},4:{},5:{1:('alice','bob')[sender],2:50}}
                     clients[sender][1].write(user_message(2000,
                         command_message(16,msgpack.packb(reflection))))
