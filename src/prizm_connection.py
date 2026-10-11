@@ -6,6 +6,9 @@ HTTP raid discovery. Service handlers receive validated session identity.
 
 import base64
 import secrets
+import struct
+
+from prizm_diagnostics import rejection_reason
 
 from prizm_protocol import (FrameDecoder, Opcode, ProtocolError,
                             read_hello_request, read_fallback_request,
@@ -23,6 +26,7 @@ class Connection:
         self.closed = False
         self.pending = []
         self.pending_keys = []
+        self.rejection_context = "transport"
 
     def notify(self, service, body, reliable=True, coalesce=None):
         if self.closed or self.session is None:
@@ -75,8 +79,10 @@ class Connection:
         if self.closed:
             raise ProtocolError('Connection is closed.')
         output = []
+        operation = "transport"
         try:
             for opcode, payload in self.decoder.feed(data):
+                operation = "transport"
                 if self.session is None:
                     if opcode != Opcode.HELLO_REQUEST:
                         raise ProtocolError('Hello required before service traffic.')
@@ -123,6 +129,10 @@ class Connection:
                     if not reliable and not self.fallback_enabled:
                         raise ProtocolError('Fallback was not negotiated.')
                     service, body = read_user_message(payload)
+                    if service in (1000, 2000) and len(body) >= 2:
+                        command = struct.unpack_from("<h", body)[0]
+                        if 0 <= command <= 36:
+                            operation = "service_%d_command_%d" % (service, command)
                     replies = self.service_handler(self.session, service, body, reliable)
                     for reply_service, reply_body, reply_reliable in replies:
                         if not reply_reliable and not self.fallback_enabled:
@@ -131,7 +141,8 @@ class Connection:
                 else:
                     # Alert handling still needs its native semantics.
                     raise ProtocolError('Unsupported opcode for connection state.')
-        except (ProtocolError, SessionError):
+        except (ProtocolError, SessionError) as error:
+            self.rejection_context = operation + "_reason_" + rejection_reason(error)
             self.close()
             raise
         except Exception:

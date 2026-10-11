@@ -73,7 +73,8 @@ class Listener:
                     writer.write(reply)
                     await asyncio.wait_for(writer.drain(), self.write_timeout)
         except ProtocolError:
-            self.diagnostics.record('protocol_rejected')
+            self.diagnostics.record('protocol_rejected', connection.rejection_context
+                                    if connection is not None else 'transport')
         except SessionError:
             self.diagnostics.record('session_rejected')
         except ConnectionError:

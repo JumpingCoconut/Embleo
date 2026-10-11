@@ -78,6 +78,29 @@ class ConnectionTests(unittest.TestCase):
             self.connection.receive(frame(Opcode.PING,b''))
         self.assertTrue(self.connection.closed)
 
+    def test_rejection_diagnostics_expose_only_fixed_context(self):
+        from prizm_diagnostics import rejection_reason
+        for message, service, command in (
+                ('Invalid enemy creation fields.', 2000, 14),
+                ('secret-token-client-value', 2000, 14),
+                ('Invalid enemy creation fields.', 12345, 30000)):
+            self.setUp()
+            self.connection.receive(hello_request(self.tcp))
+            self.handler.side_effect = ProtocolError(message)
+            with self.assertRaises(ProtocolError):
+                self.connection.receive(user_message(service, struct.pack('<h', command)))
+            context = self.connection.rejection_context
+            self.assertNotIn(message, context)
+            if message.startswith('secret'):
+                self.assertTrue(context.endswith('_reason_unknown'))
+                self.assertEqual(rejection_reason(ProtocolError(message)), 'unknown')
+            elif service == 2000:
+                self.assertTrue(context.startswith('service_2000_command_14_reason_'))
+                self.assertFalse(context.endswith('unknown'))
+            else:
+                self.assertTrue(context.startswith('transport_reason_'))
+            self.assertTrue(self.connection.closed)
+
     def setUp(self):
         self.registry = SessionRegistry()
         self.tcp, self.udp = self.registry.issue('alice', 'room', 1)
