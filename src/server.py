@@ -30,6 +30,7 @@ from accounts import AccountError, AccountStore, decode_icon, default_saves, sav
 from profiles import add_all_emblems, noble_dates, utc_date
 from multiplayer import SocialStore, register_multiplayer
 from health import database_ready
+from prizm_host import configured_runtime_ready
 import sqlite3
 
 from scripts.adapt.adapt_debug_episode_data import fill_episode_layout_group_by_episode_id
@@ -86,6 +87,9 @@ PUBLIC_API_PATHS = frozenset({
 def readiness():
 	try:
 		database_ready(app.config['ACCOUNT_DB'])
+		if not configured_runtime_ready(app):
+			return Response('{"online":false}', status=503,
+				content_type='application/json', headers={'Cache-Control':'no-store'})
 	except (sqlite3.Error, OSError):
 		return Response('{"online":false}', status=503,
 			content_type='application/json', headers={'Cache-Control':'no-store'})

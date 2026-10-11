@@ -7,14 +7,91 @@ import ssl
 import socket
 import subprocess
 import tempfile
+import threading
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
-from prizm_host import RuntimeHost, run_http
+from prizm_host import RuntimeHost, run_http, configured_runtime_ready
 from prizm_control import RoomControl
 from prizm_runtime import Runtime
 
 
 class HostTests(unittest.TestCase):
+    def test_health_round_trip_checks_listener_cleanup_and_control(self):
+        class Listener:
+            sockets = [object()]
+            serving = True
+            def is_serving(self): return self.serving
+        class TestRuntime:
+            async def start(self, *args):
+                self.closed = False
+                self.control = RoomControl(object())
+                self.listener = SimpleNamespace(server=Listener())
+                self.cleanup_task = asyncio.create_task(asyncio.sleep(3600))
+            async def stop(self):
+                self.closed = True
+                self.control.close()
+                self.cleanup_task.cancel()
+                await asyncio.gather(self.cleanup_task, return_exceptions=True)
+        owner = RuntimeHost(TestRuntime)
+        adapter = owner.start('localhost', 0, None)
+        app = SimpleNamespace(config={'PVE_HTTP':adapter}, extensions={'pve_runtime':owner})
+        try:
+            self.assertTrue(configured_runtime_ready(app))
+            owner.runtime.listener.server.serving = False
+            self.assertFalse(owner.healthy())
+            owner.runtime.listener.server.serving = True
+            owner.loop.call_soon_threadsafe(owner.runtime.cleanup_task.cancel)
+            # Wait for cancellation on the owner loop, not a scheduling assumption.
+            asyncio.run_coroutine_threadsafe(asyncio.sleep(0), owner.loop).result(2)
+            self.assertFalse(owner.healthy())
+        finally:
+            owner.stop()
+        self.assertFalse(owner.healthy())
+
+    def test_unresponsive_loop_health_is_bounded_and_recovers(self):
+        class TestRuntime:
+            async def start(self, *args): self.control = RoomControl(object())
+            async def stop(self): self.control.close()
+        owner = RuntimeHost(TestRuntime)
+        owner.start('localhost', 0, None)
+        entered, release = threading.Event(), threading.Event()
+        def block():
+            entered.set()
+            release.wait(2)
+        try:
+            owner.loop.call_soon_threadsafe(block)
+            self.assertTrue(entered.wait(1))
+            self.assertFalse(owner.healthy(timeout=0.02))
+        finally:
+            release.set()
+            owner.stop()
+
+    def test_configured_missing_runtime_fails_closed_but_solo_passes(self):
+        app = SimpleNamespace(config={}, extensions={})
+        self.assertTrue(configured_runtime_ready(app))
+        for key in ('PVE_RUNTIME_FACTORY','PVE_PUBLICATION','PVE_HTTP'):
+            app.config = {key:object()}
+            self.assertFalse(configured_runtime_ready(app))
+        owner = RuntimeHost(lambda:None)
+        owner.runtime = object()
+        app.config = {'PVE_HTTP':object()}
+        app.extensions = {'pve_runtime':owner}
+        self.assertFalse(configured_runtime_ready(app))
+
+    def test_health_handles_distinct_concurrent_future_timeout(self):
+        # Before Python 3.11 this is not the builtin TimeoutError class.
+        class LegacyTimeout(Exception): pass
+        owner = RuntimeHost(lambda:None)
+        owner.thread = SimpleNamespace(is_alive=lambda:True)
+        owner.loop = SimpleNamespace(is_running=lambda:True,
+                                     call_soon_threadsafe=lambda callback:None)
+        def timed_out(timeout): raise LegacyTimeout()
+        future = SimpleNamespace(result=timed_out,cancel=lambda:None)
+        with patch('prizm_host.FutureTimeoutError',LegacyTimeout), patch('prizm_host.Future',return_value=future):
+            self.assertFalse(owner.healthy())
+
     def test_stop_cancels_once_without_python311_task_api(self):
         class Task:
             count = 0
@@ -70,15 +147,19 @@ class HostTests(unittest.TestCase):
             owner = RuntimeHost(lambda:Runtime(2))
             adapter = owner.start('127.0.0.1',0,tls)
             try:
+                self.assertTrue(owner.healthy())
                 address = owner.runtime.listener.server.sockets[0].getsockname()
                 with socket.create_connection(address,timeout=2) as raw:
                     with trusted.wrap_socket(raw,server_hostname='localhost') as client:
                         self.assertTrue(client.getpeercert())
+                owner.loop.call_soon_threadsafe(owner.runtime.listener.server.close)
+                self.assertFalse(owner.healthy())
             finally:
                 owner.stop()
             self.assertTrue(adapter.control.closed)
             self.assertIsNone(owner.runtime.listener.server)
             self.assertFalse(owner.thread.is_alive())
+            self.assertFalse(owner.healthy())
 
     def test_start_timeout_cancels_listener_and_finishes_cleanup(self):
         class Runtime:

@@ -13,6 +13,14 @@ import server
 
 
 class HealthTests(unittest.TestCase):
+    def test_failed_raid_readiness_is_public_boolean_only(self):
+        for path in ('/healthz','/api/game/health'):
+            with patch('server.database_ready'), patch('server.configured_runtime_ready', return_value=False):
+                result = server.app.test_client().get(path)
+            self.assertEqual(result.status_code,503)
+            self.assertEqual(result.json,{'online':False})
+            self.assertEqual(result.headers['Cache-Control'],'no-store')
+
     def test_committed_header_write_preserves_data_and_version(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'accounts.sqlite3'

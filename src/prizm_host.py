@@ -1,7 +1,7 @@
 """Synchronous Flask-process ownership of the raid event loop."""
 
 import asyncio
-from concurrent.futures import Future
+from concurrent.futures import Future, TimeoutError as FutureTimeoutError
 import os
 from pathlib import Path
 import threading
@@ -76,6 +76,55 @@ class RuntimeHost:
             if self.thread.is_alive():
                 raise RuntimeError('Raid runtime shutdown did not finish.')
             self.closed.result()
+
+    def healthy(self, timeout=0.25):
+        """Bounded round trip to the owning loop; no network or private details."""
+        if (self.stopping.is_set() or self.closed.done() or self.thread is None
+                or not self.thread.is_alive() or self.loop is None
+                or not self.loop.is_running()):
+            return False
+        result = Future()
+
+        def inspect():
+            if not result.set_running_or_notify_cancel():
+                return
+            try:
+                runtime = self.runtime
+                listener = runtime.listener.server
+                healthy = (not self.stopping.is_set() and not self.task.done()
+                           and not runtime.closed and listener is not None
+                           and listener.is_serving() and bool(listener.sockets)
+                           and runtime.cleanup_task is not None
+                           and not runtime.cleanup_task.done()
+                           and runtime.control is not None
+                           and not runtime.control.closed
+                           and runtime.control.loop is self.loop)
+            except Exception:
+                healthy = False
+            result.set_result(healthy)
+
+        try:
+            self.loop.call_soon_threadsafe(inspect)
+            return result.result(timeout)
+        except (FutureTimeoutError, RuntimeError):
+            result.cancel()
+            return False
+
+
+def configured_runtime_ready(app):
+    """Solo is independent; opted-in raids require their live process owner."""
+    owner = app.extensions.get('pve_runtime')
+    adapter = app.config.get('PVE_HTTP')
+    publication = app.config.get('PVE_PUBLICATION')
+    if (owner is None and adapter is None and publication is None
+            and app.config.get('PVE_RUNTIME_FACTORY') is None):
+        return True
+    if (adapter is None or not isinstance(owner, RuntimeHost)
+            or owner.runtime is None
+            or getattr(adapter, 'control', None) is None
+            or getattr(adapter, 'control', None) is not getattr(owner.runtime, 'control', None)):
+        return False
+    return owner.healthy()
 
 
 def attach_runtime(app, owner, host, port, tls):
