@@ -9,6 +9,7 @@ import asyncio
 import concurrent.futures
 import copy
 import threading
+from prizm_diagnostics import Diagnostics
 
 
 class RoomControl:
@@ -24,6 +25,7 @@ class RoomControl:
         self.lock = threading.Lock()
         self.pending = set()
         self.closed = False
+        self.diagnostics = Diagnostics('control')
 
     def submit(self, operation, *args, **kwargs):
         if operation not in self.METHODS:
@@ -33,8 +35,10 @@ class RoomControl:
         future = concurrent.futures.Future()
         with self.lock:
             if self.closed or not self.loop.is_running():
+                self.diagnostics.record('stopped', operation)
                 raise RuntimeError('Room control is stopped.')
             if len(self.pending) >= self.limit:
+                self.diagnostics.record('capacity', operation)
                 raise RuntimeError('Room control capacity reached.')
             self.pending.add(future)
         try:
@@ -49,10 +53,13 @@ class RoomControl:
     def _execute(self, future, operation, args, kwargs):
         try:
             if not future.set_running_or_notify_cancel():
+                self.diagnostics.record('cancelled', operation)
                 return
             try:
                 result = getattr(self.service,operation)(*args,**kwargs)
             except Exception as error:
+                self.diagnostics.record('request_rejected' if isinstance(error, ValueError)
+                                        else 'request_failed', operation)
                 future.set_exception(error)
             else:
                 future.set_result(result)

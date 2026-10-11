@@ -6,6 +6,7 @@ import ssl
 from prizm_connection import Connection
 from prizm_protocol import ProtocolError
 from prizm_sessions import SessionError
+from prizm_diagnostics import Diagnostics
 
 
 class Listener:
@@ -22,6 +23,7 @@ class Listener:
         self.tasks = set()
         self.server = None
         self.stopping = False
+        self.diagnostics = Diagnostics('listener')
 
     async def start(self, host, port, tls):
         if self.server is not None:
@@ -39,6 +41,7 @@ class Listener:
         connection = None
         try:
             if self.stopping or len(self.tasks) >= self.max_connections:
+                self.diagnostics.record('stopping' if self.stopping else 'capacity')
                 return
             self.tasks.add(task)
             connection = Connection(self.registry, self.service_handler)
@@ -49,21 +52,28 @@ class Listener:
                     data = await asyncio.wait_for(reader.read(65536), min(0.1,self.idle_timeout))
                 except asyncio.TimeoutError:
                     if loop.time()-last_read >= self.idle_timeout:
+                        self.diagnostics.record('idle_timeout')
                         break
                     for reply in connection.notifications():
                         writer.write(reply)
                         await asyncio.wait_for(writer.drain(),self.write_timeout)
                     continue
                 if not data:
+                    self.diagnostics.record('peer_eof')
                     connection.eof()
                     break
                 last_read = loop.time()
                 for reply in connection.receive(data) + connection.notifications():
                     writer.write(reply)
                     await asyncio.wait_for(writer.drain(), self.write_timeout)
-        except (ProtocolError, SessionError, ConnectionError, asyncio.TimeoutError):
-            # Expected disconnects contain no credentials/profile data in logs.
-            pass
+        except ProtocolError:
+            self.diagnostics.record('protocol_rejected')
+        except SessionError:
+            self.diagnostics.record('session_rejected')
+        except ConnectionError:
+            self.diagnostics.record('connection_lost')
+        except asyncio.TimeoutError:
+            self.diagnostics.record('write_timeout')
         finally:
             if connection is not None:
                 connection.close()

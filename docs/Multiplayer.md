@@ -1661,3 +1661,26 @@ queue tied to the prepared battle. It relays creation first, then the creator's
 queued action after authorization; other senders' claims and stale actions are
 discarded. Damage reflection also permits a null damage-credit user ID, while
 supplied credits still require room membership.
+
+## Two-client playtest
+
+Use two distinct accounts and record the time and the action on each device
+when a failure occurs. Server logs can diagnose transport failures; a client
+crash may also require device logs. Never publish bearer tokens or save files.
+
+1. Discover the same event and difficulty on both clients. Create a room on
+   one client and join its displayed room ID on the other.
+2. Verify both characters and equipment appear correctly. Change a character,
+   ready both players, and confirm both reach the arena after loading.
+3. Check movement, attacks, weapon skills, ultimate gauges and boss damage from
+   both views. Defeat the boss and compare the result screens.
+4. Return both players to the room, start another battle, then test Try Again.
+5. Leave the room and create another. Separately test a brief disconnect and
+   reconnection during loading and combat, including a host disconnect.
+6. Reconnect both accounts and verify inventory and existing episode progress.
+   Check reward changes against the deployment's explicit settlement policy;
+   a no-grants test deployment does not establish reward or ranking correctness.
+
+Configured raid readiness includes a bounded listener-loop check in addition
+to database write readiness. A stopped listener, failed cleanup task or closed
+control bridge reports only `online: false`, without infrastructure details.
