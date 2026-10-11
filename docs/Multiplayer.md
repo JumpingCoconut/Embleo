@@ -405,6 +405,21 @@ ASCII decimal digits. Search lookup/uniqueness and public endpoint
 configuration remain operator responsibilities. Preserve certificate verification; the unencrypted application
 session flag does not replace TLS.
 
+Direct listener TLS remains the default and requires a server `SSLContext`.
+Operators may explicitly select `Runtime(..., trusted_tls_proxy=True)` with
+`PVE_TLS=None` when a trusted TCP proxy terminates and verifies the client-facing
+TLS connection. This mode accepts unencrypted backend traffic only; supplying
+a TLS context at the same time is rejected. It never falls back automatically
+when TLS configuration is missing or invalid. Room credentials and protocol
+authentication are still required.
+
+The operator must isolate that backend on loopback or a private container
+network reachable only by the trusted proxy. Never expose the unencrypted
+backend to the public network. The proxy's public certificate must satisfy
+the actual client's certificate verification and pins; ordinary HTTPS trust
+alone does not establish Prizm compatibility. This option changes transport
+termination, not room ownership or matchmaking.
+
 The lobby caller `UILayoutPvERoom.<execute>d__36.MoveNext` at `0x3179568`
 checks `IPrizmManager.get_IsHost` (interface slot 6) before InGameStart.
 `UILayoutPvERoom.<setReady>d__39.MoveNext` at `0x317C440` compares Ready with

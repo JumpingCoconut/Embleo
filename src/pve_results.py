@@ -49,6 +49,10 @@ class CompletionSaves:
     def read(self, name):
         return self._store.read(self._account,name)
 
+    def exists(self, name):
+        """Inspect an optional save in the current account's scope."""
+        return self._store.exists(self._account,name)
+
     def write(self, name, value):
         if not self._writable or name == JOURNAL:
             raise ValueError('Completion rendering and journal writes are restricted.')

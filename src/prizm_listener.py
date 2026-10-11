@@ -11,15 +11,18 @@ from prizm_diagnostics import Diagnostics
 
 class Listener:
     def __init__(self, registry, service_handler, max_connections=64,
-                 idle_timeout=30, write_timeout=10):
+                 idle_timeout=30, write_timeout=10, trusted_tls_proxy=False):
         if (type(max_connections) is not int or max_connections < 1
                 or idle_timeout <= 0 or write_timeout <= 0):
             raise ValueError('Invalid listener limits.')
+        if type(trusted_tls_proxy) is not bool:
+            raise ValueError('trusted_tls_proxy must be a boolean.')
         self.registry = registry
         self.service_handler = service_handler
         self.max_connections = max_connections
         self.idle_timeout = idle_timeout
         self.write_timeout = write_timeout
+        self.trusted_tls_proxy = trusted_tls_proxy
         self.tasks = set()
         self.server = None
         self.stopping = False
@@ -28,12 +31,15 @@ class Listener:
     async def start(self, host, port, tls):
         if self.server is not None:
             raise RuntimeError('Listener already started.')
-        if not isinstance(tls, ssl.SSLContext) or tls.protocol != ssl.PROTOCOL_TLS_SERVER:
+        if self.trusted_tls_proxy:
+            if tls is not None:
+                raise ValueError('Trusted TLS proxy mode requires no backend TLS context.')
+        elif not isinstance(tls, ssl.SSLContext) or tls.protocol != ssl.PROTOCOL_TLS_SERVER:
             raise ValueError('A server TLS context is required.')
         self.stopping = False
+        options = {} if self.trusted_tls_proxy else {'ssl':tls, 'ssl_handshake_timeout':10}
         self.server = await asyncio.start_server(
-            self.handle, host, port, ssl=tls, ssl_handshake_timeout=10,
-            limit=65536)
+            self.handle, host, port, limit=65536, **options)
         return self.server.sockets
 
     async def handle(self, reader, writer):

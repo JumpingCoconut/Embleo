@@ -11,10 +11,22 @@ from prizm_rooms import Rooms,RoomError
 from prizm_sessions import SessionRegistry
 from test_prizm_lobby import player
 from accounts import AccountStore
-from pve_results import DurableCompletionProvider,JOURNAL
+from pve_results import DurableCompletionProvider,CompletionSaves,JOURNAL
 
 
 class CompletionTests(unittest.TestCase):
+    def test_readonly_completion_exists_preserves_account_scope_and_does_not_write(self):
+        store = Mock()
+        store.exists.side_effect = lambda account,name: account == 'alice' and name == 'UserTickets.json'
+        saves = CompletionSaves(store,'alice',False)
+        self.assertTrue(saves.exists('UserTickets.json'))
+        self.assertFalse(saves.exists('missing.json'))
+        self.assertEqual(store.exists.call_args_list[0].args,('alice','UserTickets.json'))
+        with self.assertRaises(TypeError): saves.exists('bob','UserTickets.json')
+        with self.assertRaises(ValueError): saves.write('UserTickets.json',[])
+        store.write.assert_not_called()
+        store.connection.commit.assert_not_called()
+
     def test_durable_room_retry_refreshes_inventory_without_resettling(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)/'accounts.sqlite3'

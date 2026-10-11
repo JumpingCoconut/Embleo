@@ -519,3 +519,36 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
         listener = Listener(SessionRegistry(),lambda *args: [])
         with self.assertRaises(ValueError):
             await listener.start('127.0.0.1',0,None)
+
+    async def test_proxy_mode_is_explicit_and_rejects_tls_contexts(self):
+        for value in (None,0,1,'true'):
+            with self.assertRaises(ValueError):
+                Listener(SessionRegistry(),lambda *args:[],trusted_tls_proxy=value)
+        client_tls = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        with self.assertRaises(ValueError):
+            await Listener(SessionRegistry(),lambda *args:[]).start('127.0.0.1',0,client_tls)
+        proxy = Listener(SessionRegistry(),lambda *args:[],trusted_tls_proxy=True)
+        for tls in (client_tls,ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)):
+            with self.assertRaises(ValueError):
+                await proxy.start('127.0.0.1',0,tls)
+
+    async def test_explicit_proxy_backend_authenticates_over_real_loopback(self):
+        registry = SessionRegistry()
+        credential,_ = registry.issue('alice','room',1)
+        listener = Listener(registry,lambda *args:[],trusted_tls_proxy=True)
+        await listener.start('127.0.0.1',0,None)
+        reader,writer = await asyncio.open_connection(*listener.server.sockets[0].getsockname())
+        try:
+            writer.write(hello_request(credential))
+            await writer.drain()
+            decoder = FrameDecoder()
+            frames = []
+            while not frames:
+                frames = decoder.feed(await asyncio.wait_for(reader.read(65536),2))
+            status,token,_ = read_handshake_response(frames[0][1])
+            self.assertEqual(status,0)
+            self.assertEqual(registry.get(token['session_id']).admission.account_id,'alice')
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            await listener.stop()
