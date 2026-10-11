@@ -978,10 +978,21 @@ current membership, prepared battle and registered object ownership, validates
 top-level maps/transforms/integers and preserves nested status maps and sequence
 counters. Full nested status semantics and counter ordering remain unverified.
 The TCP-first implementation sends these notifications as fallback frames only
-to peers that negotiated fallback; queued status messages coalesce by GUID,
-placing the newest update at the end of the queue. This does not implement UDP
+to peers that negotiated fallback; queued status messages retain their order.
+Native `MoveCharacterController.CreateActionParamUpdateStatus` (`0x1992794`)
+includes the optional battle status only for full-spec updates; its receive
+handler (`0x1992C14`) applies battle status only when that optional value exists.
+Replacing a queued full update with a movement-only update would lose HP state.
+This does not implement UDP
 ciphering or establish Android fallback behavior. Reconnect replay, ownership
 transfer, action/attack/damage messages and combat completion remain unfinished.
+
+Frequent combat relays borrow the authorized live room while holding its lock
+through validation and fanout. They do not copy the frozen HTTP preparation and
+master-data tables for each movement, status, effect, or heartbeat packet.
+Public room snapshots remain detached copies. Regression coverage checks
+ownership and revoked membership on this path and runs ordered 129-message
+bursts over verified TLS with both synthetic and installed master data.
 
 Movement command 6 (`InGameServiceBase.MoveAction`, `0x1B61638`) and attack-start
 command 8 (`InGameServiceBase.AttackStart`, `0x1B616C8`) use reliable one-way

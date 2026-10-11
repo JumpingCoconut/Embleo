@@ -461,9 +461,9 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
                 # Coalesced and fragmented reliable movement, on two real TLS
                 # sockets with an actively reading peer. Distinct values expose
                 # drops/reordering; pings establish usability on both sockets.
-                # Installed-data snapshotting is intentionally expensive; the
-                # synthetic flow isolates scheduling from asset-copy costs.
-                for chunk_size in ((None, 17) if installed_root is None else ()):
+                # Run with installed masters too: per-message copies of frozen
+                # HTTP preparation must not stall the listener's combat relays.
+                for chunk_size in (None, 17):
                     moves = [{1:creations[0][1],2:index,3:{},4:{}} for index in range(129)]
                     wire = b''.join(user_message(2000, command_message(6,
                         msgpack.packb(move))) for move in moves)

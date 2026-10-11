@@ -18,6 +18,49 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
+    def test_battle_relays_do_not_copy_frozen_master_data(self):
+        class FrozenMasterData:
+            def __deepcopy__(self, memo):
+                raise AssertionError('Battle relay copied frozen HTTP master data')
+
+        rooms,registry = Rooms(4),SessionRegistry()
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        host = Connection(registry,service)
+        host.receive(hello_request(tcp))
+        _,peer_tcp,_ = service.join(room['RoomId'],player('bob'),'v')
+        peer = Connection(registry,service)
+        peer.receive(hello_request(peer_tcp))
+        peer.notifications()
+        current = rooms.rooms[room['RoomId']]
+        guid = bytes(range(16))
+        current.update(PreparedBattle={'alice':{'BattleId':'battle','MasterGroup':FrozenMasterData()}},
+                       PlayerObjects={guid:('alice',{})})
+        reference = {1:guid}
+        requests = [(2,{1:reference,2:{1:1.0}},False),
+                    (4,{1:reference,2:{},3:{},4:{}},True),
+                    (6,{1:reference,2:1,3:{}},True),
+                    (8,{1:reference,2:{},3:[]},True),
+                    (16,{1:reference,2:{1:reference},3:{1:reference},4:{},5:{1:'alice',2:1}},True),
+                    (20,{1:reference,2:1,20:1},True),
+                    (22,{1:'alice',2:reference},True),
+                    (24,{1:'alice',2:'alice',3:reference},True),
+                    (29,{1:reference,2:1,3:7},True),
+                    (31,{1:reference,2:7},True),
+                    (33,{1:reference,2:7,3:1,4:b'data'},True),
+                    (14,{1:reference},True)]
+        for command,request,reliable in requests:
+            with self.subTest(command=command):
+                body = command_message(command,msgpack.packb(request))
+                if command != 24:
+                    with self.assertRaises((RoomError,ProtocolError)):
+                        service(peer.session,2000,body,reliable)
+                self.assertEqual(service(host.session,2000,body,reliable),[])
+                peer.notifications()
+        del rooms.memberships['alice']
+        with self.assertRaises(RoomError):
+            service(host.session,2000,command_message(22,msgpack.packb({1:'alice',2:reference})),True)
+
     def test_status_action_defers_until_authorized_enemy_creation(self):
         rooms,registry = Rooms(4),SessionRegistry()
         service = RoomService(rooms,registry,battle_enemy_provider=lambda account,room:{'spawn'})
@@ -464,15 +507,19 @@ class RoomServiceTests(unittest.TestCase):
                 self.assertEqual(clients[0].notifications(),[])
         self.assertEqual(len(rooms.rooms[room['RoomId']]['PlayerObjects']),1)
         self.assertEqual(len(rooms.rooms[room['RoomId']]['EnemyObjects']),1)
-        status = {1:creation[1],2:{1:1.0},3:{4:1.0},9:1,10:1,11:1}
+        status = {1:creation[1],2:{1:1.0},3:{4:1.0},6:{1:40},9:1,10:1,11:1}
         status_wire = command_message(2,msgpack.packb(status))
         with self.assertRaises(RoomError): service(clients[1].session,2000,status_wire,False)
         self.assertEqual(clients[0].receive(user_message(2000,status_wire,fallback=True)),[])
-        updated = status | {2:{1:2.0},9:2}
+        # A movement-only update must not erase the queued battle-status update.
+        updated = {key:value for key,value in (status | {2:{1:2.0},9:2}).items() if key != 6}
         clients[0].receive(user_message(2000,command_message(2,msgpack.packb(updated)),fallback=True))
         notifications = clients[1].notifications()
-        self.assertEqual(len(notifications),1)
-        opcode,payload = FrameDecoder().feed(notifications[0])[0]
+        self.assertEqual(len(notifications),2)
+        first_service,first_body = read_user_message(FrameDecoder().feed(notifications[0])[0][1])
+        self.assertEqual(first_service,2000)
+        self.assertEqual(msgpack.unpackb(read_command_message(first_body)[1],strict_map_key=False),status)
+        opcode,payload = FrameDecoder().feed(notifications[1])[0]
         self.assertEqual(opcode,Opcode.FALLBACK_MESSAGE)
         sid,body = read_user_message(payload)
         command,payload = read_command_message(body)

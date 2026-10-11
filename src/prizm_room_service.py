@@ -598,23 +598,23 @@ class RoomService:
                     raise ProtocolError('Object status requires unreliable transport.')
                 request = update_status_request(body)
                 with self.rooms.lock:
-                    room = self.rooms.snapshot(session,2,False)
-                    current = self.rooms.rooms[room['RoomId']]
+                    room = current = self.rooms._authorized_room(session)
                     guid = request[1][1]
                     owner = self._object(current,guid)
                     if 'PreparedBattle' not in room or owner is None or owner[0] != session.admission.account_id:
                         raise RoomError('Object status sender does not own this object.')
                     current.setdefault('ObjectStatuses',{})[guid] = copy.deepcopy(request)
+                    # Native fullspec=False updates omit BattleStatus. A later
+                    # movement update cannot replace an earlier HP update.
                     self.broadcast(room,update_status_notification(request),exclude=session.admission.account_id,
-                                   service=BATTLE_SERVICE,reliable=False,coalesce=('status',guid))
+                                   service=BATTLE_SERVICE,reliable=False)
                 return []
             if not reliable:
                 raise ProtocolError('Invalid battle load transport.')
             if command in (20,29,31,33):
                 _,request,recipient = object_effect_request(body)
                 with self.rooms.lock:
-                    room = self.rooms.snapshot(session,command,False)
-                    current = self.rooms.rooms[room['RoomId']]
+                    room = current = self.rooms._authorized_room(session)
                     account,guid = session.admission.account_id,request[1][1]
                     owner = self._object(current,guid)
                     if recipient is not None and recipient not in {entry['UserId'] for entry in room['Players']}:
@@ -638,8 +638,7 @@ class RoomService:
             if command in (22,24):
                 _,request = object_liveness_request(body,session.admission.account_id)
                 with self.rooms.lock:
-                    room = self.rooms.snapshot(session,command,False)
-                    current = self.rooms.rooms[room['RoomId']]
+                    room = current = self.rooms._authorized_room(session)
                     guid = request[2 if command == 22 else 3][1]
                     owner = self._object(current,guid)
                     if 'PreparedBattle' not in room:
@@ -663,8 +662,7 @@ class RoomService:
             if command == 14:
                 _,request = object_action_request(body)
                 with self.rooms.lock:
-                    room = self.rooms.snapshot(session,14,False)
-                    current = self.rooms.rooms[room['RoomId']]
+                    room = current = self.rooms._authorized_room(session)
                     account,guid = session.admission.account_id,request[1][1]
                     owner = self._object(current,guid)
                     retired = current.get('DestroyedObjects',{}).get(guid)
@@ -690,8 +688,7 @@ class RoomService:
             if command in (4,6,8,16):
                 _,request = object_action_request(body)
                 with self.rooms.lock:
-                    room = self.rooms.snapshot(session,command,False)
-                    current = self.rooms.rooms[room['RoomId']]
+                    room = current = self.rooms._authorized_room(session)
                     guid = request[1][1]
                     owner = self._object(current,guid)
                     if (command == 4 and 'PreparedBattle' in room and owner is None

@@ -143,13 +143,21 @@ class Rooms:
 
     def snapshot(self, session, command, rejoin):
         with self.lock:
-            admission = session.admission
-            if self.memberships.get(admission.account_id) != admission.room_id:
-                raise RoomError('Room admission was revoked.')
-            room = self.rooms.get(admission.room_id)
-            if room is None:
-                raise RoomError('Room no longer exists.')
-            return copy.deepcopy(room)
+            return copy.deepcopy(self._authorized_room(session))
+
+    def _authorized_room(self, session):
+        """Borrow a room only while the caller holds lock for the entire use.
+
+        Battle relays need ownership and membership, not a detached copy of
+        the frozen HTTP responses and their large master-data tables.
+        """
+        admission = session.admission
+        if self.memberships.get(admission.account_id) != admission.room_id:
+            raise RoomError('Room admission was revoked.')
+        room = self.rooms.get(admission.room_id)
+        if room is None:
+            raise RoomError('Room no longer exists.')
+        return room
 
     def reopen_completed(self, room):
         """Open the next lobby only after its remaining players have settled."""
