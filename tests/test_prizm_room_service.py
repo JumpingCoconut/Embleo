@@ -18,6 +18,131 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
+    def test_status_action_defers_until_authorized_enemy_creation(self):
+        rooms,registry = Rooms(4),SessionRegistry()
+        service = RoomService(rooms,registry,battle_enemy_provider=lambda account,room:{'spawn'})
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        connection = Connection(registry,service)
+        connection.receive(hello_request(tcp))
+        current = rooms.rooms[room['RoomId']]
+        current.update(PreparedBattle={'alice':{'BattleId':'battle'}},BattleRoster={'alice':'pl001'})
+        guid = bytes(range(16))
+        effect = {1:{1:guid},2:11,3:1,20:8}
+        body = command_message(20,msgpack.packb(effect))
+        with patch.object(service,'broadcast') as broadcast:
+            self.assertEqual(service(connection.session,2000,body,True),[])
+            broadcast.assert_not_called()
+            self.assertNotIn('EnemyObjects',current)
+            creation = {1:{1:guid},2:{},3:{},4:'spawn'}
+            service(connection.session,2000,command_message(12,msgpack.packb(creation)),True)
+            commands = [read_command_message(call.args[1])[0] for call in broadcast.call_args_list]
+            self.assertEqual(commands,[13,21])
+        self.assertEqual(current['PendingBattleActions'],[])
+        current['EnemyObjects'][guid] = ('bob',{})
+        with self.assertRaises(RoomError): service(connection.session,2000,body,True)
+        current['EnemyObjects'] = {}
+        current['DestroyedObjects'] = {guid:'alice'}
+        with self.assertRaises(RoomError): service(connection.session,2000,body,True)
+
+    def test_deferred_status_recipient_and_battle_generation_are_rechecked(self):
+        rooms = Rooms(4)
+        service = RoomService(rooms,SessionRegistry())
+        room = {'RoomId':'test','Players':[{'UserId':'alice'},{'UserId':'bob'}],
+                'BattleRoster':{'alice':'pl001'},'PreparedBattle':{'alice':{'BattleId':'battle'}}}
+        rooms.rooms['test'] = room
+        guid = bytes(range(16))
+        request = {1:{1:guid},2:11,20:8}
+        service._defer_action(room,'alice',guid,request,20,'bob')
+        room['Players'].pop()
+        with patch.object(service,'broadcast') as broadcast:
+            service._flush_actions(room,'alice',guid)
+            broadcast.assert_not_called()
+        service._defer_action(room,'alice',guid,request,20)
+        room['PreparedBattle'] = {'alice':{'BattleId':'next'}}
+        with patch.object(service,'broadcast') as broadcast:
+            service._flush_actions(room,'alice',guid)
+            broadcast.assert_not_called()
+        self.assertEqual(room['PendingBattleActions'],[])
+
+    def test_native_send_only_reset_reopens_settled_host_and_retains_previous_result(self):
+        rooms,registry = Rooms(4),SessionRegistry(reconnect=True)
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        connection = Connection(registry,service)
+        connection.receive(hello_request(tcp))
+        current = rooms.rooms[room['RoomId']]
+        body = command_message(11,msgpack.packb({}))
+        with self.assertRaises(RoomError): service(connection.session,1000,body,True)
+        current.update(Status=1,PreparedBattle={'alice':{'EpisodeToken':'token'}},
+                       GameOver={1:1},Completions={'alice':('identity',{})})
+        for invalid in ([],{1:1},None):
+            with self.assertRaises(ProtocolError):
+                service(connection.session,1000,command_message(11,msgpack.packb(invalid)),True)
+        with self.assertRaises(ProtocolError): service(connection.session,1000,body,False)
+        self.assertEqual(service(connection.session,1000,body,True),[])
+        self.assertEqual(current['Status'],0)
+        self.assertNotIn('PreparedBattle',current)
+        self.assertIn('alice',current['PreviousBattle']['Completions'])
+        self.assertEqual(current['Players'][0]['Ready'],0)
+        self.assertEqual(connection.notifications(),[])
+        import copy
+        before = copy.deepcopy(current)
+        self.assertEqual(service(connection.session,1000,body,True),[])
+        self.assertEqual(current,before)
+        service.release_returned_member('alice')
+        self.assertTrue(connection.closed)
+        self.assertNotIn('alice',rooms.memberships)
+
+    def test_late_peer_return_after_host_reset_is_bounded_to_previous_open_lobby(self):
+        rooms,registry = Rooms(4),SessionRegistry()
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        host = Connection(registry,service)
+        host.receive(hello_request(tcp))
+        _,peer_tcp,_ = service.join(room['RoomId'],player('bob'),'v')
+        peer = Connection(registry,service)
+        peer.receive(hello_request(peer_tcp))
+        response = dict(EpisodeToken='token',BattleId='battle',CharacterDetail={},
+            EnemyDetail={},EpisodeDetail={},EpisodeDetailUser={},MasterGroup={},LimitTime=60,BgmId='bgm')
+        current = rooms.rooms[room['RoomId']]
+        current.update(Status=1,PreparedBattle={'alice':response,'bob':response},GameOver={1:1},
+                       Completions={'alice':('identity',{}),'bob':('identity',{})})
+        reset = command_message(11,msgpack.packb({}))
+        service(host.session,1000,reset,True)
+        returned = command_message(35,msgpack.packb({1:'bob'}))
+        service(peer.session,2000,returned,True)
+        self.assertEqual(current['BackHomeUsers'],{'alice','bob'})
+        self.assertEqual(service(peer.session,1000,reset,True),[])
+        rooms.ready(peer.session,'bob',1)
+        rooms.prepare_battle(host.session,lambda room:{'alice':response,
+            'bob':response | {'EpisodeToken':'bob-token'}})
+        self.assertNotIn('BackHomeUsers',current)
+        service.release_returned_member('bob')
+        self.assertEqual(rooms.memberships['bob'],room['RoomId'])
+        self.assertFalse(peer.closed)
+        with self.assertRaises(RoomError): service(peer.session,2000,returned,True)
+        with self.assertRaises(RoomError): service(peer.session,1000,reset,True)
+
+    def test_return_reset_preserves_unsettled_peer_and_nonhost_cannot_reopen(self):
+        rooms,registry = Rooms(4),SessionRegistry()
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        host = Connection(registry,service)
+        host.receive(hello_request(tcp))
+        _,peer_tcp,_ = service.join(room['RoomId'],player('bob'),'v')
+        peer = Connection(registry,service)
+        peer.receive(hello_request(peer_tcp))
+        current = rooms.rooms[room['RoomId']]
+        current.update(Status=1,PreparedBattle={'alice':{},'bob':{}},GameOver={1:1},
+                       Completions={'alice':('identity',{})})
+        body = command_message(11,msgpack.packb({}))
+        self.assertEqual(service(host.session,1000,body,True),[])
+        self.assertIn('PreparedBattle',current)
+        current['Completions']['bob'] = ('identity',{})
+        self.assertEqual(service(peer.session,1000,body,True),[])
+        self.assertIn('PreparedBattle',current)
+        self.assertEqual(current['Status'],1)
+
     def test_unknown_heartbeat_is_dropped_without_registration_or_notification(self):
         import copy
         rooms,registry = Rooms(4),SessionRegistry()
@@ -61,13 +186,16 @@ class RoomServiceTests(unittest.TestCase):
             with self.assertRaises(ProtocolError):
                 service(connection.session,2000,command_message(35,msgpack.packb(invalid)),True)
         with self.assertRaises(ProtocolError): service(connection.session,2000,body,False)
-        self.assertEqual(service(connection.session,2000,body,True),[])
+        with patch.object(service,'broadcast') as broadcast:
+            self.assertEqual(service(connection.session,2000,body,True),[])
+            args,kwargs = broadcast.call_args
+            self.assertEqual(kwargs['exclude'],'alice')
+            command,payload = read_command_message(args[1])
+            self.assertEqual(command,36)
+            self.assertEqual(msgpack.unpackb(payload,strict_map_key=False),{1:'alice'})
         self.assertEqual(current['BackHomeUsers'],{'alice'})
         self.assertEqual(rooms.memberships['alice'],room['RoomId'])
-        _,payload = read_user_message(FrameDecoder().feed(connection.notifications()[0])[0][1])
-        command,payload = read_command_message(payload)
-        self.assertEqual(command,36)
-        self.assertEqual(msgpack.unpackb(payload,strict_map_key=False),{1:'alice'})
+        self.assertEqual(connection.notifications(),[])
         current['Completions'] = {}
         service.release_returned_member('alice')
         self.assertEqual(rooms.memberships['alice'],room['RoomId'])

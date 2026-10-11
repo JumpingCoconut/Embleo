@@ -1506,6 +1506,17 @@ raids are configured, and clears the adapter/stops transport when serving exits.
 Module import does not open listeners. Runtime remains disabled without this
 explicit configuration, and installed provider assembly still needs work.
 
+COLOPL's public [2022 Prizm presentation](https://speakerdeck.com/colopl/colopltech-03-01)
+provides architectural context: slides 6 and 28 describe a locally runnable
+communication core, while slides 36–40 place discovery and matchmaking in the
+API service. Slides 41–43 discuss transport security, network testing and
+game-specific reconnect handling. Its [2023 launch report](https://blog.colopl.dev/entry/2023/02/21/110937)
+also describes retaining sessions across disconnects. These references support
+separating transport disconnection from explicit room departure. They do not
+establish Luminaria's command numbers, serializer or return-to-room sequence;
+those contracts still require client evidence. The [2026 overview](https://blog.colopl.dev/entry/2026/09/18/110000)
+describes the framework and SDK languages without publishing a wire specification.
+
 WSGI hosts can use the same explicit lifecycle. `load_operator_config(app)`
 loads `EMBLEO_PVE_CONFIG` without starting transport. In a private Gunicorn
 configuration, initialize the listener after the worker has loaded its app:

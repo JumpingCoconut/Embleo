@@ -47,14 +47,14 @@ class RoomService:
                       and row[4] == battle_id]
         return pending,now
 
-    def _defer_action(self, room, account, guid, request):
+    def _defer_action(self, room, account, guid, request, command=4, recipient=None):
         pending,now = self._pending_actions(room)
         if (len(pending) >= self.PENDING_ACTION_ROOM_LIMIT
                 or sum(row[1] == account for row in pending) >= self.PENDING_ACTION_ACCOUNT_LIMIT
                 or sum(len(msgpack.packb(row[3],use_bin_type=True)) for row in pending)
                    + len(msgpack.packb(request,use_bin_type=True)) > self.PENDING_ACTION_BYTE_LIMIT):
             raise RoomError('Too many actions awaiting object creation.')
-        pending.append((now,account,guid,copy.deepcopy(request),self._prepared_battle_id(room)))
+        pending.append((now,account,guid,copy.deepcopy(request),self._prepared_battle_id(room),command,recipient))
 
     def _flush_actions(self, room, account, guid):
         current = self.rooms.rooms[room['RoomId']]
@@ -64,9 +64,13 @@ class RoomService:
         if (account not in {entry['UserId'] for entry in current['Players']}
                 or account not in current.get('BattleRoster',{account:None})):
             return
-        for _,_,_,request,_ in ready:
-            self.broadcast(room,object_action_notification(4,request),exclude=account,
-                           service=BATTLE_SERVICE)
+        for _,_,_,request,_,command,recipient in ready:
+            if recipient is not None and recipient not in {entry['UserId'] for entry in current['Players']}:
+                continue
+            notification = (object_effect_notification(command,request) if command == 20
+                            else object_action_notification(command,request))
+            self.broadcast(room,notification,exclude=account,
+                           service=BATTLE_SERVICE,recipient=recipient)
 
     def __init__(self, rooms, registry, guild_provider=None,
                  event_catalog=None, eligibility_provider=None, room_settings_provider=None,
@@ -141,7 +145,8 @@ class RoomService:
             room_id = self.rooms.memberships.get(account_id)
             room = self.rooms.rooms.get(room_id)
             if (room is not None and account_id in room.get('BackHomeUsers',set())
-                    and account_id in room.get('Completions',{})):
+                    and (account_id in room.get('Completions',{})
+                         or account_id in room.get('PreviousBattle',{}).get('Completions',{}))):
                 self.leave(account_id,room_id)
 
     def admitted(self, room, account_id):
@@ -480,12 +485,15 @@ class RoomService:
                 with self.rooms.lock:
                     room = self.rooms.snapshot(session,command,False)
                     current = self.rooms.rooms[room['RoomId']]
-                    if (account not in current.get('PreparedBattle',{})
-                            or 'GameOver' not in current
-                            or account not in current.get('Completions',{})):
+                    battle = current
+                    if 'PreparedBattle' not in current and current['Status'] == 0:
+                        battle = current.get('PreviousBattle',{})
+                    if (account not in battle.get('PreparedBattle',{})
+                            or 'GameOver' not in battle
+                            or account not in battle.get('Completions',{})):
                         raise RoomError('Battle return requires a settled outcome.')
                     current.setdefault('BackHomeUsers',set()).add(account)
-                    self.broadcast(room,notification,service=BATTLE_SERVICE)
+                    self.broadcast(room,notification,exclude=account,service=BATTLE_SERVICE)
                 return []
             if command in (0,26):
                 if not reliable:
@@ -536,10 +544,14 @@ class RoomService:
                     current = self.rooms.rooms[room['RoomId']]
                     account,guid = session.admission.account_id,request[1][1]
                     owner = self._object(current,guid)
-                    if 'PreparedBattle' not in room or owner is None or owner[0] != account:
-                        raise RoomError('Effect sender does not own this object.')
                     if recipient is not None and recipient not in {entry['UserId'] for entry in room['Players']}:
                         raise RoomError('Effect recipient is not a room member.')
+                    if (command == 20 and 'PreparedBattle' in room and owner is None
+                            and guid not in current.get('DestroyedObjects',{})):
+                        self._defer_action(current,account,guid,request,command,recipient)
+                        return []
+                    if 'PreparedBattle' not in room or owner is None or owner[0] != account:
+                        raise RoomError('Effect sender does not own this object.')
                     if recipient is None and command in (29,31):
                         buffs = current.setdefault('ObjectBuffs',{})
                         key = (guid,request.get(3 if command == 29 else 2,0))
@@ -748,6 +760,34 @@ class RoomService:
                                service=BATTLE_SERVICE)
             return []
         command, payload = read_command_message(body)
+        if command == 11:
+            if service != 1000 or not reliable:
+                raise ProtocolError('Invalid room reset transport.')
+            try:
+                request = msgpack.unpackb(payload,raw=False,strict_map_key=False,
+                                         max_map_len=0,max_array_len=0,max_str_len=0,max_bin_len=0)
+            except (ValueError,msgpack.UnpackException):
+                raise ProtocolError('Invalid room reset payload.') from None
+            if type(request) is not dict or request:
+                raise ProtocolError('Room reset request must be empty.')
+            account = session.admission.account_id
+            with self.rooms.lock:
+                room = self.rooms.snapshot(session,command,False)
+                current = self.rooms.rooms[room['RoomId']]
+                if ('PreparedBattle' not in current and current['Status'] == 0
+                        and account in current.get('BackHomeUsers',set())
+                        and account in current.get('PreviousBattle',{}).get('Completions',{})):
+                    return []
+                if (account not in current.get('PreparedBattle',{})
+                        or account not in current.get('Completions',{})):
+                    raise RoomError('Room reset requires a settled battle.')
+                returned = set(current.get('BackHomeUsers',set())) | {account}
+                player = next(entry for entry in current['Players'] if entry['UserId'] == account)
+                player['Ready'] = 0
+                if player['IsHost']:
+                    self.rooms.reopen_completed(current)
+                current['BackHomeUsers'] = returned
+            return []
         if command == 5:
             if service != 1000 or not reliable:
                 raise ProtocolError('Invalid character change transport.')

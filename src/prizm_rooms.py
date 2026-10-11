@@ -309,6 +309,7 @@ class Rooms:
             if self.start_candidate(session) != candidate:
                 raise RoomError('Lobby changed during battle preparation.')
             self.rooms[candidate['RoomId']]['PreparedBattle'] = detached
+            self.rooms[candidate['RoomId']].pop('BackHomeUsers',None)
             self.rooms[candidate['RoomId']]['BattleRoster'] = {
                 entry['UserId']:entry['CharacterId'] for entry in candidate['Players']}
             if characters is not None:
