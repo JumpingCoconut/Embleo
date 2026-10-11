@@ -375,6 +375,35 @@ class AccountTests(unittest.TestCase):
                           {"episodeId": "pl001_ep001", "scenarioNo": 10000}, token)
         self.assertEqual(self.saved(user, "checkpoint.txt"), {})
 
+    def test_raid_profile_diagnostics_use_only_fixed_labels(self):
+        from prizm_diagnostics import Diagnostics
+        alice, _ = self.register()
+        _, token = self.register('Bob')
+        diagnostic = Diagnostics('profile')
+        with patch.object(server, 'pve_profile_diagnostics', diagnostic), \
+                patch.dict(server.app.config, {'PVE_HTTP': object()}), \
+                self.assertLogs('embleo.raid.profile', level='WARNING') as captured:
+            resolved = self.unpack(self.post('/api/user/other-user-info',
+                {'userIdInfo': [alice['id']+',pl001']}, token))
+            self.assertEqual(resolved['UserViews'][0]['UserId'], alice['id'])
+            self.assertEqual(resolved['UserViews'][0]['CharacterId'], 'pl001')
+            self.assertEqual(resolved['UserViews'][0]['Name'], 'Alice')
+            self.unpack(self.post('/api/user/other-user-info', {'userIdInfo': []}, token))
+            self.unpack(self.post('/api/user/other-user-info',
+                {'userIdInfo': [alice['id'], 'private-unknown-id']}, token))
+            self.assertEqual(self.post('/api/user/other-user-info',
+                {'userIdInfo': 'private-invalid-data'}, token).status_code, 400)
+        self.assertEqual({key[0] for key in diagnostic.counts},
+            {'lookup_received', 'lookup_resolved', 'lookup_empty', 'lookup_partial', 'lookup_rejected'})
+        logs = '\n'.join(captured.output)
+        for private in (alice['id'], token, 'Alice', 'private-unknown-id', 'private-invalid-data'):
+            self.assertNotIn(private, logs)
+        quiet = Diagnostics('profile')
+        with patch.object(server, 'pve_profile_diagnostics', quiet), \
+                patch.dict(server.app.config, {'PVE_HTTP': None}):
+            self.unpack(self.post('/api/user/other-user-info', {'userIdInfo': [alice['id']]}, token))
+        self.assertEqual(quiet.counts, {})
+
     def test_portrait_is_png_and_is_still_available_after_restart(self):
         alice, token = self.register()
         bob, bob_token = self.register("Bob")

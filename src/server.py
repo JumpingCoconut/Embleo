@@ -31,11 +31,15 @@ from profiles import add_all_emblems, noble_dates, utc_date
 from multiplayer import SocialStore, register_multiplayer
 from health import database_ready
 from prizm_host import configured_runtime_ready
+from prizm_diagnostics import Diagnostics
+
 import sqlite3
 
 from scripts.adapt.adapt_debug_episode_data import fill_episode_layout_group_by_episode_id
 
 # from server_scripts.challenge_mission.challenge_mission import challenge_mission
+
+pve_profile_diagnostics = Diagnostics("profile")
 
 DISABLE_LEVELUPCAMP = True
 DISABLE_EVENTS = True
@@ -151,6 +155,8 @@ def account_error_response(message, status=400):
 
 @app.errorhandler(AccountError)
 def handle_account_error(error):
+	if request.path == "/api/user/other-user-info" and app.config.get("PVE_HTTP") is not None:
+		pve_profile_diagnostics.record("lookup_rejected", "other_user_info")
 	return account_error_response(str(error))
 
 
@@ -1968,6 +1974,9 @@ def login_calendar_open_tile():
 
 @app.route("/api/user/other-user-info", methods=["GET", "POST"])
 def other_user_info():
+	diagnostics_enabled = app.config.get("PVE_HTTP") is not None
+	if diagnostics_enabled:
+		pve_profile_diagnostics.record("lookup_received", "other_user_info")
 	identifiers = request_object().get("userIdInfo", [])
 	if not isinstance(identifiers, list) or len(identifiers) > 32:
 		raise AccountError("Invalid player list.")
@@ -1983,6 +1992,9 @@ def other_user_info():
 		if account_id is None:
 			continue
 		views.append(user_view(account_id, parts[1] if len(parts) == 2 else None))
+	if diagnostics_enabled:
+		reason = "lookup_empty" if not views else ("lookup_resolved" if len(views) == len(identifiers) else "lookup_partial")
+		pve_profile_diagnostics.record(reason, "other_user_info")
 	return pack_json_response({"UserViews": views})
 
 
