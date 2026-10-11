@@ -166,6 +166,15 @@ class CompletionTests(unittest.TestCase):
         self.assertNotIn('Completions', fresh_live)
         with self.assertRaises(RoomError):
             service.complete_http('bob', request, True)
+        now[0] = 309
+        self.assertEqual(service.complete_http('alice', request, True), {'Result': {}})
+        provider.assert_called_once()
+        now[0] = 310
+        service.release_abandoned_member('outsider')
+        self.assertNotIn('alice', service.abandoned_battles)
+        with self.assertRaises(RoomError):
+            service.complete_http('alice', request, True)
+        self.assertEqual(rooms.memberships['alice'], fresh['RoomId'])
 
     def test_abandonment_preserves_active_peers_and_repeated_frozen_contexts(self):
         now = [0]
@@ -196,7 +205,7 @@ class CompletionTests(unittest.TestCase):
             self.assertEqual(service.complete_http('alice', dict(EpisodeToken=token, Playlog=''), True),
                              {'Result': {}})
         self.assertEqual(service.completion_provider.call_count, 2)
-        # Both unresolved and completed contexts count toward the cap.
+        # Settled contexts expire after their retry window; unresolved contexts persist.
         for index in range(6):
             new = service.create(player(), 'ep', 'v', False, 1, 1, (60, 3, 20))[0]
             rooms.rooms[new['RoomId']].update(Status=1,
@@ -207,10 +216,37 @@ class CompletionTests(unittest.TestCase):
         rooms.rooms[new['RoomId']].update(Status=1,
             PreparedBattle={'alice': dict(EpisodeToken='overflow', BattleId='overflow')})
         now[0] += 120
-        with self.assertRaises(RoomError):
-            service.release_abandoned_member('alice')
-        self.assertEqual(rooms.memberships['alice'], new['RoomId'])
-        self.assertEqual(len(service.abandoned_battles['alice']), 8)
+        service.release_abandoned_member('alice')
+        self.assertNotIn('alice', rooms.memberships)
+        self.assertEqual(len(service.abandoned_battles['alice']), 7)
+        self.assertFalse(service.abandoned_replay_deadlines)
+        self.assertNotIn('old', [entry['PreparedBattle']['alice']['EpisodeToken']
+                               for entry in service.abandoned_battles['alice']])
+
+    def test_completed_retry_window_prunes_global_capacity_without_unresolved_eviction(self):
+        now = [0]
+        registry = SessionRegistry(clock=lambda: now[0])
+        rooms = Rooms(1)
+        service = RoomService(rooms, registry)
+        room = service.create(player(), 'ep', 'v', False, 1, 1, (60, 3, 20))[0]
+        current = rooms.rooms[room['RoomId']]
+        current.update(Status=1, PreparedBattle={'alice': dict(EpisodeToken='token', BattleId='battle')})
+        completed = {'Completions': {'other0': ('identity', {})}}
+        unresolved = [{} for _ in range(7)]
+        service.abandoned_battles = {'other'+str(index): [{} for _ in range(8)] for index in range(16)}
+        service.abandoned_battles['other0'] = [completed] + unresolved
+        service.abandoned_replay_deadlines[id(completed)] = 300
+        now[0] = 299
+        with self.assertRaises(RoomError): service.release_abandoned_member('alice')
+        self.assertEqual(rooms.memberships['alice'], room['RoomId'])
+        now[0] = 300
+        service.release_abandoned_member('alice')
+        self.assertNotIn('alice', rooms.memberships)
+        self.assertEqual(len(service.abandoned_battles['other0']), 7)
+        self.assertTrue(all(left is right for left, right in
+                            zip(service.abandoned_battles['other0'], unresolved)))
+        self.assertEqual(sum(map(len, service.abandoned_battles.values())), 128)
+        self.assertNotIn(id(completed), service.abandoned_replay_deadlines)
 
     def test_global_abandonment_cap_preserves_original_membership(self):
         now = [0]

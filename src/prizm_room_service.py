@@ -95,6 +95,7 @@ class RoomService:
         self.connections = {}
         self.admissions = set()
         self.abandoned_battles = {}
+        self.abandoned_replay_deadlines = {}
 
     @staticmethod
     def _object(room, guid):
@@ -150,6 +151,27 @@ class RoomService:
                          or account_id in room.get('PreviousBattle',{}).get('Completions',{}))):
                 self.leave(account_id,room_id)
 
+    def prune_abandoned_completions(self):
+        """Settled detached results allow five minutes of in-process retries.
+
+        Durable result artifacts remain in the account completion journal.
+        Unresolved contexts have no expiry and are never evicted for capacity.
+        """
+        now = self.registry.clock()
+        for account, contexts in list(self.abandoned_battles.items()):
+            retained = []
+            for context in contexts:
+                deadline = self.abandoned_replay_deadlines.get(id(context))
+                if (account in context.get('Completions', {})
+                        and deadline is not None and deadline <= now):
+                    self.abandoned_replay_deadlines.pop(id(context), None)
+                else:
+                    retained.append(context)
+            if retained:
+                self.abandoned_battles[account] = retained
+            else:
+                del self.abandoned_battles[account]
+
     def release_abandoned_member(self, account_id):
         """Explicit new admission abandons a disconnected battle after grace.
 
@@ -158,6 +180,7 @@ class RoomService:
         """
         active = self.registry.active_admissions()
         with self.rooms.lock:
+            self.prune_abandoned_completions()
             room_id = self.rooms.memberships.get(account_id)
             room = self.rooms.rooms.get(room_id)
             if (room is None or account_id not in room.get('PreparedBattle', {})
@@ -168,6 +191,8 @@ class RoomService:
                 raise RoomError('Abandoned battle retention capacity reached.')
             frozen = copy.deepcopy(room)
             self.abandoned_battles.setdefault(account_id, []).append(frozen)
+            if account_id in frozen.get("Completions", {}):
+                self.abandoned_replay_deadlines[id(frozen)] = self.registry.clock() + 300
             self.leave(account_id, room_id)
 
     def admitted(self, room, account_id):
@@ -455,6 +480,8 @@ class RoomService:
             response = completion_response(self.completion_provider(account_id,
                 copy.deepcopy(room),copy.deepcopy(request),retire),retire)
             room.setdefault('Completions',{})[account_id] = copy.deepcopy((identity,response))
+            if any(room is context for context in self.abandoned_battles.get(account_id, [])):
+                self.abandoned_replay_deadlines.setdefault(id(room), self.registry.clock() + 300)
             return copy.deepcopy(response)
 
     def discover_event(self, account_id, event_id, difficulty, version):
