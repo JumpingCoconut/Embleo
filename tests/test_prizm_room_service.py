@@ -18,6 +18,66 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
+    def test_unknown_heartbeat_is_dropped_without_registration_or_notification(self):
+        import copy
+        rooms,registry = Rooms(4),SessionRegistry()
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        connection = Connection(registry,service)
+        connection.receive(hello_request(tcp))
+        guid = bytes(range(16))
+        body = command_message(22,msgpack.packb({1:'alice',2:{1:guid}}))
+        with self.assertRaises(RoomError): service(connection.session,2000,body,True)
+        current = rooms.rooms[room['RoomId']]
+        current['PreparedBattle'] = {'alice':{}}
+        before = copy.deepcopy(current)
+        with patch.object(service,'broadcast') as broadcast:
+            self.assertEqual(service(connection.session,2000,body,True),[])
+            broadcast.assert_not_called()
+        self.assertEqual(current,before)
+        current['PlayerObjects'] = {guid:('bob',{})}
+        with self.assertRaises(RoomError): service(connection.session,2000,body,True)
+        current['PlayerObjects'] = {}
+        confirm = command_message(24,msgpack.packb({1:'alice',2:'bob',3:{1:guid},4:True}))
+        with self.assertRaises(RoomError): service(connection.session,2000,confirm,True)
+        spoof = command_message(22,msgpack.packb({1:'bob',2:{1:guid}}))
+        with self.assertRaises(ProtocolError): service(connection.session,2000,spoof,True)
+
+    def test_back_home_is_authenticated_settled_and_allows_explicit_fresh_admission(self):
+        rooms,registry = Rooms(4),SessionRegistry(reconnect=True)
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        connection = Connection(registry,service)
+        connection.receive(hello_request(tcp))
+        current = rooms.rooms[room['RoomId']]
+        current.update(Status=1,PreparedBattle={'alice':{}},GameOver={1:1})
+        body = command_message(35,msgpack.packb({1:'alice'}))
+        with self.assertRaises(RoomError):
+            service(connection.session,2000,body,True)
+        current['Completions'] = {'alice':('identity',{})}
+        service.release_returned_member('alice')
+        self.assertEqual(rooms.memberships['alice'],room['RoomId'])
+        for invalid in ({1:'bob'},{1:'alice',2:1},{True:'alice'}):
+            with self.assertRaises(ProtocolError):
+                service(connection.session,2000,command_message(35,msgpack.packb(invalid)),True)
+        with self.assertRaises(ProtocolError): service(connection.session,2000,body,False)
+        self.assertEqual(service(connection.session,2000,body,True),[])
+        self.assertEqual(current['BackHomeUsers'],{'alice'})
+        self.assertEqual(rooms.memberships['alice'],room['RoomId'])
+        _,payload = read_user_message(FrameDecoder().feed(connection.notifications()[0])[0][1])
+        command,payload = read_command_message(payload)
+        self.assertEqual(command,36)
+        self.assertEqual(msgpack.unpackb(payload,strict_map_key=False),{1:'alice'})
+        current['Completions'] = {}
+        service.release_returned_member('alice')
+        self.assertEqual(rooms.memberships['alice'],room['RoomId'])
+        current['Completions'] = {'alice':('identity',{})}
+        service.release_returned_member('alice')
+        self.assertNotIn('alice',rooms.memberships)
+        self.assertTrue(connection.closed)
+        new,_,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        self.assertNotEqual(new['RoomId'],room['RoomId'])
+
     def test_settled_disconnected_member_expires_without_dropping_unsettled_peer(self):
         now = [0]
         registry = SessionRegistry(clock=lambda:now[0],session_timeout=10,reconnect=True)

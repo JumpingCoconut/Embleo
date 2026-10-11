@@ -161,7 +161,7 @@ class Rooms:
                                                if key != 'PreviousBattle'})
         for key in ('PreparedBattle','BattleRoster','BattleCharacters','GameOver','Completions',
                     'PlayerObjects','EnemyObjects','MinionObjects','DestroyedObjects',
-                    'ObjectStatuses','ObjectBuffs','LoadStatuses','PendingBattleActions'):
+                    'ObjectStatuses','ObjectBuffs','LoadStatuses','PendingBattleActions','BackHomeUsers'):
             room.pop(key,None)
         room['Status'] = 0
         for player in room['Players']:

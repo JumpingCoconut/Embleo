@@ -11,7 +11,7 @@ from prizm_lobby import (LobbyService, ready_notification, join_notification,
 from prizm_protocol import read_command_message, ProtocolError, rpc_response
 from prizm_discovery import room_access
 from prizm_rooms import RoomError
-from prizm_battle import (BATTLE_SERVICE, load_status_request, load_status_notification,
+from prizm_battle import (BATTLE_SERVICE, load_status_request, load_status_notification,back_home_request,
                           create_player_request,create_player_reply,create_player_notification,
                           create_enemy_request,create_enemy_notification,
                           update_status_request,update_status_notification,
@@ -135,6 +135,15 @@ class RoomService:
                     and (recipient is None or admission.account_id == recipient)):
                 connection.notify(service,notification,reliable=reliable,coalesce=coalesce)
 
+    def release_returned_member(self, account_id):
+        """A new admission may replace a settled member's explicit return."""
+        with self.rooms.lock:
+            room_id = self.rooms.memberships.get(account_id)
+            room = self.rooms.rooms.get(room_id)
+            if (room is not None and account_id in room.get('BackHomeUsers',set())
+                    and account_id in room.get('Completions',{})):
+                self.leave(account_id,room_id)
+
     def admitted(self, room, account_id):
         """Called on the listener loop after authoritative HTTP admission."""
         player = next(entry for entry in room['Players'] if entry['UserId'] == account_id)
@@ -216,6 +225,7 @@ class RoomService:
         """
         self.expire_lobbies()
         with self.rooms.lock:
+            self.release_returned_member(player['UserId'])
             if player['UserId'] in self.rooms.memberships:
                 raise RoomError('Player already admitted.')
             candidates = self.discover(player['UserId'],episode_ids,version,route=2,
@@ -246,6 +256,7 @@ class RoomService:
                     or not self.guild_provider(player['UserId'])):
                 raise RoomError('Guild room requires current membership.')
             settings = self.room_settings_provider(episode_id)
+            self.release_returned_member(player['UserId'])
             room,tcp,udp = self.create(player,episode_id,version,public_level == 2,
                                       public_level,settings['Mode'],settings['SuspendLimits'])
             current = self.rooms.rooms[room['RoomId']]
@@ -290,6 +301,7 @@ class RoomService:
             raise RoomError('HTTP matching is not configured.')
         with self.rooms.lock:
             scope = self._event_scope(account_id,event_id,difficulty)
+            self.release_returned_member(account_id)
             if account_id in self.rooms.memberships:
                 raise RoomError('Player already admitted.')
             candidates = self.discover(account_id,scope,version,route=2,
@@ -460,6 +472,21 @@ class RoomService:
     def __call__(self, session, service, body, reliable):
         if service == BATTLE_SERVICE:
             command,_ = read_command_message(body)
+            if command == 35:
+                if not reliable:
+                    raise ProtocolError('Battle return requires reliable transport.')
+                account = session.admission.account_id
+                notification = back_home_request(body,account)
+                with self.rooms.lock:
+                    room = self.rooms.snapshot(session,command,False)
+                    current = self.rooms.rooms[room['RoomId']]
+                    if (account not in current.get('PreparedBattle',{})
+                            or 'GameOver' not in current
+                            or account not in current.get('Completions',{})):
+                        raise RoomError('Battle return requires a settled outcome.')
+                    current.setdefault('BackHomeUsers',set()).add(account)
+                    self.broadcast(room,notification,service=BATTLE_SERVICE)
+                return []
             if command in (0,26):
                 if not reliable:
                     raise ProtocolError('Battle completion requires reliable transport.')
@@ -530,7 +557,14 @@ class RoomService:
                     current = self.rooms.rooms[room['RoomId']]
                     guid = request[2 if command == 22 else 3][1]
                     owner = self._object(current,guid)
-                    if 'PreparedBattle' not in room or owner is None:
+                    if 'PreparedBattle' not in room:
+                        raise RoomError('Unknown battle object.')
+                    if command == 22 and owner is None:
+                        # Periodic native heartbeats can outlive a battle's
+                        # object registry or precede object registration.
+                        # They never grant ownership or fan out unseen GUIDs.
+                        return []
+                    if owner is None:
                         raise RoomError('Unknown battle object.')
                     recipient = None if command == 22 else request[2]
                     if (command == 22 and owner[0] != session.admission.account_id

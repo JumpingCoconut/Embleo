@@ -435,6 +435,23 @@ def create_player_notification(request):
     return command_message(11,msgpack.packb(request,use_bin_type=True))
 
 
+def back_home_request(body, account_id):
+    """Native BackHome sends command 35; notification is command 36."""
+    command,payload = read_command_message(body)
+    if command != 35:
+        raise ProtocolError('Expected battle return request.')
+    try:
+        request = msgpack.unpackb(payload,raw=False,strict_map_key=False,
+                                 max_map_len=1,max_array_len=0,max_str_len=128,max_bin_len=0)
+    except (ValueError,msgpack.UnpackException):
+        raise ProtocolError('Invalid battle return payload.') from None
+    if (type(request) is not dict or len(request) != 1
+            or any(type(key) is not int or key != 1 for key in request)
+            or type(request.get(1)) is not str or request[1] != account_id):
+        raise ProtocolError('Invalid battle return identity.')
+    return command_message(36,msgpack.packb(request,use_bin_type=True))
+
+
 def load_status_request(body, account_id):
     command,payload = read_command_message(body)
     if command != 18:
