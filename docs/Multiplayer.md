@@ -985,7 +985,8 @@ remain required.
 
 Reliable DestroyObject command 14 (`InGameServiceBase.DestroyObject`,
 `0x1B61898`) relays peer command 15 (receive branch `0x1B62528`), with Guid and
-ToUserId as fields 1 and 2 (`DestroyObject.Write`, `0x1B5BD94`). The registered
+ToUserId as fields 1 and 100 (`DestroyObject.Write`, `0x1B5BD94`; the recipient
+key is written by `mov w1, #0x64` at `0x1B5C048`). The registered
 owner may remove an object globally; the room clears its ownership/status,
 retains an owner tombstone to reject GUID reuse/stale updates and suppresses
 duplicate destruction notifications. A named admitted recipient receives a

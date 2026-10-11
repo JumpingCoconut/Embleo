@@ -176,6 +176,23 @@ class BattleTests(unittest.TestCase):
                         status | {7:2**63},status | {4:[]},status | {2:{1:float('nan')}}):
             with self.assertRaises(ProtocolError):
                 update_status_request(command_message(2,msgpack.packb(altered)))
+    def test_object_status_nil_references_match_omitted_defaults(self):
+        status = {1:{1:bytes(range(16))},9:1,10:2,11:3}
+        nullable = (2,3,4,5,6,8)
+        for fields in ((key,) for key in nullable):
+            parsed = update_status_request(command_message(2,msgpack.packb(
+                status | {key:None for key in fields})))
+            self.assertEqual(parsed,status)
+        parsed = update_status_request(command_message(2,msgpack.packb(
+            status | {key:None for key in nullable})))
+        self.assertEqual(parsed,status)
+        command,payload = read_command_message(update_status_notification(parsed))
+        self.assertEqual(command,3)
+        self.assertEqual(msgpack.unpackb(payload,strict_map_key=False),status)
+        for altered in (status | {1:None},status | {7:None},status | {9:None},
+                        status | {12:None},status | {4:[]},status | {2:False}):
+            with self.assertRaises(ProtocolError):
+                update_status_request(command_message(2,msgpack.packb(altered)))
     def test_enemy_creation_native_one_way_translation(self):
         request = {1:{1:bytes(range(16))},2:{1:1.0},3:{4:1.0},4:'spawn'}
         parsed = create_enemy_request(command_message(12,msgpack.packb(request)))

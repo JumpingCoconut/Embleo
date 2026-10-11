@@ -291,6 +291,10 @@ def update_status_request(body):
     if (type(request) is not dict or 1 not in request
             or any(type(key) is not int or key not in range(1,12) for key in request)):
         raise ProtocolError('Invalid object status fields.')
+    # Native Write emits nil references when default skipping is disabled.
+    # Omission has the same default meaning; normalize before routing/replay.
+    request = {key:value for key,value in request.items()
+               if key not in (2,3,4,5,6,8) or value is not None}
     guid = request[1]
     if (type(guid) is not dict or set(guid) != {1} or type(next(iter(guid))) is not int
             or type(guid[1]) is not bytes or len(guid[1]) != 16 or guid[1] == bytes(16)):
