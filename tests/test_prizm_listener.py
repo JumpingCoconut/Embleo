@@ -501,6 +501,32 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
                 command,notification = read_command_message(payload)
                 self.assertEqual((service,command),(2000,13))
                 self.assertEqual(msgpack.unpackb(notification,raw=False,strict_map_key=False)[4],enemy_id)
+                # Both admitted players can relay damage reflections to the
+                # host-owned enemy; ownership of the attacker stays enforced.
+                for sender in (1,0):
+                    reflection = {1:creations[sender][1],2:{1:creations[sender][1]},
+                                  3:{1:enemy[1]},4:{},5:{1:('alice','bob')[sender],2:50}}
+                    clients[sender][1].write(user_message(2000,
+                        command_message(16,msgpack.packb(reflection))))
+                    await clients[sender][1].drain()
+                    opcode,body = await receive(clients[1-sender][0])
+                    service,payload = read_user_message(body)
+                    command,notification = read_command_message(payload)
+                    self.assertEqual((opcode,service,command),(Opcode.USER_MESSAGE,2000,17))
+                    self.assertEqual(msgpack.unpackb(notification,raw=False,strict_map_key=False),reflection)
+                # A full boss HP update followed by movement-only state must
+                # deliver both packets, even when they share one TCP write.
+                boss_updates = [{1:enemy[1],6:{1:40},9:1,10:1,11:1},
+                                {1:enemy[1],2:{1:2.0},9:2,10:2,11:1}]
+                clients[0][1].write(b''.join(user_message(2000,
+                    command_message(2,msgpack.packb(update)),fallback=True) for update in boss_updates))
+                await clients[0][1].drain()
+                for update in boss_updates:
+                    opcode,body = await receive(clients[1][0])
+                    service,payload = read_user_message(body)
+                    command,notification = read_command_message(payload)
+                    self.assertEqual((opcode,service,command),(Opcode.FALLBACK_MESSAGE,2000,3))
+                    self.assertEqual(msgpack.unpackb(notification,raw=False,strict_map_key=False),update)
                 # Unreliable object state is carried over authenticated fallback.
                 status_update = {1:creations[0][1],2:{1:1.0}}
                 clients[0][1].write(user_message(2000,
