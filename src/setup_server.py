@@ -9,6 +9,9 @@ from scripts.adapt.adapt_debug_master_data import adapt_debug_master_data
 from scripts.adapt.adapt_debug_scenario import adapt_debug_scenario_file, batch_adapt_scenario_folder
 from scripts.adapt.adapt_chronology_for_server import generate_character_chronology_json
 
+from scripts.adapt.adapt_sequence_data import extract_all_SequenceSetting_files
+# from scripts.adapt.adapt_sequence_data import adapt_sequence_data
+
 from scripts.generate.generate_episode_master_data import generate_episode_master_data
 from scripts.generate.generate_temp_level_curve import generate_character_curve_list, generate_equipment_curve_list
 from scripts.generate.generate_save_file import generateSaveFile
@@ -26,13 +29,15 @@ For example:
     Check if "download" folder exist
 '''
 
-manifest = True
+manifest = False
 download = True
-extract = True
-adapt_master_data = True
-adapt_scenario = True
-generate = True
-save_data = True
+extract = False
+extract_sequences = False
+adapt_sequences = False
+adapt_master_data = False
+adapt_scenario = False
+generate = False
+save_data = False
 
 # Download and extract manifest from the asset server
 path_cwd = Path.cwd()
@@ -244,6 +249,34 @@ def get_asset_server_link():
 
     return asset_server_link
 
+download_list = [
+    {
+        "print_name": "masterdatadebug",
+        "manifest_folder": "masterdatadebug/",
+        "exclude": ""
+    },
+    {
+        "print_name": "masterdata",
+        "manifest_folder": "masterdata/",
+        "exclude": "masterdata/episode/"
+    },
+    {
+        "print_name": "chronology",
+        "manifest_folder": "lang_ja/texts/commonterm/chronology",
+        "exclude": ""
+    },
+    {
+        "print_name": "enemy data",
+        "manifest_folder": "characters/enemy/",
+        "exclude": ""
+    },
+    {
+        "print_name": "character data",
+        "manifest_folder": "characters/player/",
+        "exclude": ""
+    }
+]
+
 
 def setup(asset_server_link):
 
@@ -255,33 +288,35 @@ def setup(asset_server_link):
         extract_file((DOWNLOAD_FOLDER / manifest_file_name).as_posix())
 
     # Downloading and extracting files
-
     if download:
         print("Downloading necessary files...")
-        # Download masterdatadebug files
-        print("Downloading masterdatadebug")
-        MasterDataDebug_files = get_all_files_in_folder_manifest("masterdatadebug/")
-        download_manifest_files_from_asset_server(MasterDataDebug_files)
 
-        # Download masterdata files
-        print("Downloading masterdata")
-        MasterData_files = get_all_files_in_folder_manifest("masterdata/",
-                                                            exclude="masterdata/episode/")
-        download_manifest_files_from_asset_server(MasterData_files)
+        for download_group in download_list:
+            print("Downloading", download_group["print_name"])
+            files_to_download = get_all_files_in_folder_manifest(download_group["manifest_folder"],
+                                                                 exclude=download_group["exclude"])
+            download_manifest_files_from_asset_server(files_to_download)
 
-        # japanese chronology, single file
-        print("Downloading chronology")
-        Chronology = get_all_files_in_folder_manifest("lang_ja/texts/commonterm/chronology")
-        download_manifest_files_from_asset_server(Chronology)
 
     # Extract downloaded AssetBundles
     if extract:
         print("= = = Extracting downloaded files (may take some time) = = =")
 
-        downloaded_files = list(pathlib.Path(DOWNLOAD_FOLDER).rglob("*.*"))
+        downloaded_files = set(pathlib.Path(DOWNLOAD_FOLDER).rglob("*.*"))
+
+        # EXCLUDE character/enemy data, since it is extracted separately
+        enemy_files = set(pathlib.Path(DOWNLOAD_FOLDER).rglob("characters/**"))
+        downloaded_files = downloaded_files - enemy_files
 
         for path in downloaded_files:
             extract_file(str(path))
+
+    if extract_sequences:
+        # extract_all_SequenceSetting_files(DOWNLOAD_FOLDER / "characters", EXTRACT_FOLDER / "SequenceSetting")
+        pass
+
+    if adapt_sequences:
+        pass
 
     if adapt_master_data:
         adapt_debug_master_data(EXTRACT_FOLDER, MASTER_DATA_FOLDER)
