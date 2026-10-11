@@ -27,6 +27,8 @@ class CatalogRoomViews:
         if type(account) is not str or not account:
             raise ValueError('Authenticated room viewer required.')
         links = [row for row in self.links if row['EpisodeId'] == room['EpisodeId']]
+        if 'EpisodePveEventId' in room:
+            links = [row for row in links if row['EpisodePveEventId'] == room['EpisodePveEventId']]
         if 'EventId' in room:
             links = [row for row in links if (row['EventId'],row['Difficulty'])
                      == (room['EventId'],room['Difficulty'])]

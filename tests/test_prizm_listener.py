@@ -126,7 +126,7 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
                     LocationEpisodeId='PvE_Season001',EventDrops=[],EpisodeDetailUser={},
                     LimitTime=300,BgmId='BGM_00071')
                 assembler = installed_battle_assembler(installed_root,database_path,ordering,
-                    {'episode':definition},{},extra_saves=('User.json',))
+                    {'PvE_Season001':definition},{},extra_saves=('User.json',))
                 profiles = SnapshotRaidPlayers(assembler.snapshots,assembler.presentation,
                     lambda account,prepared:dict(CharacterId='pl001',Platform='android',
                                                  ClientVersion='1.6.0',MissionRank=1))
@@ -136,8 +136,8 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
                 from prizm_admission import admission_payload
                 now = datetime.now(timezone.utc)
                 catalog = ScheduledCatalog(EpisodeCatalog([dict(EpisodePveEventId='link',
-                    EventId='event',EpisodeId='episode',RequiredPower=0,Difficulty=0,
-                    MinVerIOS='1.0.0',MinVerAndroid='1.0.0')],{'episode'}),[
+                    EventId='event',EpisodeId='PvE_Season001',RequiredPower=0,Difficulty=0,
+                    MinVerIOS='1.0.0',MinVerAndroid='1.0.0')],{'PvE_Season001'}),[
                     dict(EventId='event',PublishStartAt=now,StartAt=now,
                          EndAt=now+timedelta(hours=1))],lambda:now)
                 views = CatalogRoomViews(catalog,lambda *args:dict(IconUrl='',EmblemId='',
@@ -197,7 +197,7 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
                 with server.app.test_client() as anonymous:
                     self.assertEqual(anonymous.post('/api/pve/create',data=b'\x80').status_code,401)
                 admitted = (await asyncio.to_thread(http.create,'alice',dict(
-                    EpisodeId='episode',PublicLevel=1,PveVersion='version')))['Prizm']
+                    EpisodeId='PvE_Season001',PublicLevel=1,PveVersion='version')))['Prizm']
                 room = runtime.rooms.rooms[admitted['RoomId']]
                 tcp,udp = admitted['JwtTcp'],admitted['JwtUdp']
                 self.assertEqual(await asyncio.to_thread(http.heart_beat,'alice',
@@ -210,7 +210,7 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
                     EventId='event',RoomId=room['RoomId'],PveVersion='version'))
                 self.assertEqual(info['Room']['HostUserId'],'alice')
             else:
-                room,tcp,udp = await control('create',unselected(),'episode','version',False,0,1,(60,3,20))
+                room,tcp,udp = await control('create',unselected(),'PvE_Season001','version',False,0,1,(60,3,20))
             room_id = room['RoomId']
             async def receive(reader):
                 header = await asyncio.wait_for(reader.readexactly(5),3)
@@ -298,7 +298,7 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(msgpack.unpackb(notification,raw=False,strict_map_key=False),{1:'alice'})
                 self.assertEqual(len(prepared_calls),1)
                 adapter = http
-                request = dict(EpisodeId='episode',CharacterId='pl001',
+                request = dict(EpisodeId='PvE_Season001',CharacterId='pl001',
                     MemberIds=['alice','bob',None,None],MemberCharacterIds=['pl001','pl001'])
                 responses = await asyncio.gather(*(asyncio.to_thread(adapter.start,name,request)
                     for name in ('alice','bob')))
@@ -405,8 +405,8 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
                     else:
                         self.assertEqual(read_handshake_response(body)[0], 0)
                 clients[0][1].write(user_message(2000, rpc_request(10, 45,
-                    msgpack.packb(creations[0] | {7:'bob'})))
-                    + user_message(2000, command_message(12, msgpack.packb(enemy | {5:'bob'}))))
+                    msgpack.packb(creations[0] | {100:'bob'})))
+                    + user_message(2000, command_message(12, msgpack.packb(enemy | {100:'bob'}))))
                 await clients[0][1].drain()
                 _, body = await receive(clients[0][0])
                 self.assertEqual(read_rpc_response(read_user_message(body)[1])[:3], (10, 1, 45))

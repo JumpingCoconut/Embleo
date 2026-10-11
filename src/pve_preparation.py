@@ -184,8 +184,10 @@ class BattleAssembler:
 class InstalledBattleResponses:
     """Compose account-scoped start data from installed episode definitions.
 
-    episode_loader accepts a catalog-authorized episode ID and returns its
+    episode_loader accepts a catalog-authorized definition ID and returns its
     EnemyDetail, EpisodeDetail, EpisodeDetailUser, LimitTime and BgmId.
+    Installed loaders retain event binding identity when difficulties share
+    a native episode, instead of selecting a scenario by arena identity.
     The EpisodeDetailUser definition supplies fresh-run defaults, never another
     account's checkpoint/playlog. Items must be included in the frozen snapshot.
     """
@@ -200,7 +202,9 @@ class InstalledBattleResponses:
 
     def for_room(self, room):
         """Load the installed episode once, before preparing any participants."""
-        installed = deepcopy(self.episode_loader(room['EpisodeId']))
+        resolver = getattr(self.episode_loader,'definition_key',None)
+        key = resolver(room) if callable(resolver) else room['EpisodeId']
+        installed = deepcopy(self.episode_loader(key))
         if (type(installed) is not dict
                 or set(installed) != {'EnemyDetail','EpisodeDetail','EpisodeDetailUser','LimitTime','BgmId'}
                 or any(type(installed[key]) is not dict for key in
@@ -208,21 +212,21 @@ class InstalledBattleResponses:
                 or type(installed['LimitTime']) is not int or not 0 <= installed['LimitTime'] < 2**31
                 or type(installed['BgmId']) is not str):
             raise ValueError('Complete installed raid definition required.')
-        identity = (room['EpisodeId'], room['BattleId'])
+        identity = (room['EpisodeId'], room['BattleId'],room.get('EpisodePveEventId'))
         def build(context, prepared, play):
-            if (context['EpisodeId'], context['BattleId']) != identity:
+            if (context['EpisodeId'], context['BattleId'],context.get('EpisodePveEventId')) != identity:
                 raise ValueError('Episode preparation belongs to another battle.')
-            return self._build(context, prepared, play, deepcopy(installed))
+            return self._build(context, prepared, play, deepcopy(installed),key)
         return build
 
-    def _build(self, room, prepared, play, installed):
+    def _build(self, room, prepared, play, installed, definition_key):
         account = prepared.account_id
         character_detail = {
             'characters':deepcopy(self.characters),
             'userCharacters':prepared.save(account,'UserCharacter.json'),
             'userEquipments':prepared.save(account,'UserEquipment.json'),
             'userItems':prepared.save(account,'UserItems.json'),
-            'baseVisual':deepcopy(self.visuals(room['EpisodeId'])
+            'baseVisual':deepcopy(self.visuals(definition_key)
                                   if callable(self.visuals) else self.visuals),
         }
         installed['EpisodeDetailUser']['playCharacters'] = [deepcopy(play)]

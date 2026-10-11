@@ -125,6 +125,15 @@ class RoomService:
     def _access(self, room, account_id, route, episode_ids):
         if room['EpisodeId'] not in episode_ids:
             return False
+        if 'EpisodePveEventId' in room and self.event_catalog is not None:
+            eligibility = self.eligibility_provider(account_id)
+            try:
+                context = self.event_catalog.eligible_event(room['EpisodePveEventId'],
+                    eligibility['Power'],eligibility['Platform'],eligibility['ClientVersion'])
+            except ValueError:
+                return False
+            if context != (room['EventId'],room['Difficulty']):
+                return False
         host = next(entry for entry in room['Players'] if entry['IsHost'])
         viewer_guild = host_guild = None
         if room['PublicLevel'] == 3:
@@ -182,8 +191,9 @@ class RoomService:
             raise RoomError('Invalid room public level.')
         with self.rooms.lock:
             eligibility = self.eligibility_provider(player['UserId'])
-            context = self.event_catalog.eligible_event(episode_id,eligibility['Power'],
+            link = self.event_catalog.eligible_link(episode_id,eligibility['Power'],
                 eligibility['Platform'],eligibility['ClientVersion'])
+            episode_id = link['EpisodeId']
             if public_level == 3 and (self.guild_provider is None
                     or not self.guild_provider(player['UserId'])):
                 raise RoomError('Guild room requires current membership.')
@@ -191,7 +201,8 @@ class RoomService:
             room,tcp,udp = self.create(player,episode_id,version,public_level == 2,
                                       public_level,settings['Mode'],settings['SuspendLimits'])
             current = self.rooms.rooms[room['RoomId']]
-            current.update(EventId=context[0],Difficulty=context[1])
+            current.update(EventId=link['EventId'],Difficulty=link['Difficulty'],
+                           EpisodePveEventId=link['EpisodePveEventId'])
             return copy.deepcopy(current),tcp,udp
 
     def create_http(self, account_id, episode_id, version, public_level):
@@ -200,8 +211,6 @@ class RoomService:
         player = self.player_provider(account_id)
         if player.get('UserId') != account_id:
             raise RoomError('Player provider returned a different account.')
-        if self.event_catalog is not None:
-            episode_id = self.event_catalog.episodes.resolve_episode(episode_id)
         room,tcp,udp = self.create_event(player,episode_id,version,public_level)
         return self._http_admission(account_id,room,tcp,udp)
 
@@ -217,7 +226,8 @@ class RoomService:
             if room is None:
                 raise RoomError('Room unavailable.')
             eligibility = self.eligibility_provider(account_id)
-            event_id,difficulty = self.event_catalog.eligible_event(room['EpisodeId'],
+            event_id,difficulty = self.event_catalog.eligible_event(
+                room.get('EpisodePveEventId',room['EpisodeId']),
                 eligibility['Power'],eligibility['Platform'],eligibility['ClientVersion'])
             player = self.player_provider(account_id)
             if player.get('UserId') != account_id:
@@ -281,10 +291,18 @@ class RoomService:
             return self.join_checked(room_id,player,version,route,scope)
 
     def start_http(self, account_id, episode_id, character_id, member_ids, member_character_ids):
-        if self.event_catalog is not None:
-            episode_id = self.event_catalog.episodes.resolve_episode(episode_id)
-        return self.rooms.start_response(account_id,episode_id,character_id,
-                                         member_ids,member_character_ids)
+        with self.rooms.lock:
+            if self.event_catalog is not None:
+                room_id = self.rooms.memberships.get(account_id)
+                room = self.rooms.rooms.get(room_id)
+                links = self.event_catalog.episodes.links
+                selected = [row for row in links if row['EpisodePveEventId'] == episode_id]
+                if (selected and room is not None and 'EpisodePveEventId' in room
+                        and episode_id != room['EpisodePveEventId']):
+                    raise RoomError('Start request belongs to another event binding.')
+                episode_id = self.event_catalog.episodes.resolve_episode(episode_id)
+            return self.rooms.start_response(account_id,episode_id,character_id,
+                                             member_ids,member_character_ids)
 
     def heartbeat_http(self, account_id, room_id):
         with self.rooms.lock:
@@ -528,7 +546,7 @@ class RoomService:
                             or self.battle_minion_provider is None
                             or self.battle_minion_provider(account,copy.deepcopy(room),copy.deepcopy(request)) is not True):
                         raise RoomError('Minion creation is not authorized.')
-                    recipient = request[7] or None
+                    recipient = request[100] or None
                     if recipient is not None and recipient not in {entry['UserId'] for entry in room['Players']}:
                         raise RoomError('Minion recipient is not a room member.')
                     guid = request[1][1]
@@ -537,8 +555,8 @@ class RoomService:
                     existing = self._object(current,guid)
                     objects = current.setdefault('MinionObjects',{})
                     if existing is not None and (guid not in objects or existing[0] != account
-                            or {key:value for key,value in existing[1].items() if key not in (3,4,6,7)}
-                            != {key:value for key,value in request.items() if key not in (3,4,6,7)}
+                            or {key:value for key,value in existing[1].items() if key not in (3,4,6,100)}
+                            != {key:value for key,value in request.items() if key not in (3,4,6,100)}
                             or not minion_recovery_parameters_match(existing[1][6],request[6])):
                         raise RoomError('Minion object identity is already owned.')
                     if existing is None:
@@ -561,7 +579,7 @@ class RoomService:
                         authorized = type(allowed) in (set,frozenset,list,tuple) and request[4] in allowed
                     if authorized is not True:
                         raise RoomError('Enemy spawn is not authorized for this player.')
-                    recipient = request[5] or None
+                    recipient = request[100] or None
                     if recipient is not None and recipient not in {entry['UserId'] for entry in room['Players']}:
                         raise RoomError('Enemy recipient is not a room member.')
                     current = self.rooms.rooms[room['RoomId']]
@@ -573,8 +591,8 @@ class RoomService:
                     objects = current.setdefault('EnemyObjects',{})
                     existing = objects.get(guid)
                     if existing is not None and (existing[0] != account
-                            or {key:value for key,value in existing[1].items() if key not in (2,3,5)}
-                            != {key:value for key,value in request.items() if key not in (2,3,5)}):
+                            or {key:value for key,value in existing[1].items() if key not in (2,3,100)}
+                            != {key:value for key,value in request.items() if key not in (2,3,100)}):
                         raise RoomError('Enemy object identity is already owned.')
                     if existing is None:
                         objects[guid] = (account,copy.deepcopy(request))
@@ -596,7 +614,7 @@ class RoomService:
                             raise RoomError('Battle player creation is not configured.')
                         character = self.battle_character_provider(account,copy.deepcopy(room))
                     request_id,request = create_player_request(body,player,character)
-                    recipient = request[7] or None
+                    recipient = request[100] or None
                     if recipient is not None and recipient not in {entry['UserId'] for entry in room['Players']}:
                         raise RoomError('Player object recipient is not a room member.')
                     objects = self.rooms.rooms[room['RoomId']].setdefault('PlayerObjects',{})
@@ -609,7 +627,7 @@ class RoomService:
                     existing = objects.get(guid)
                     if existing is not None:
                         def identity(value):
-                            core = {key:item for key,item in value.items() if key not in (2,3,7)}
+                            core = {key:item for key,item in value.items() if key not in (2,3,100)}
                             core[4] = {key:item for key,item in core[4].items() if key not in (6,7)}
                             return core
                         if (existing[0] != account

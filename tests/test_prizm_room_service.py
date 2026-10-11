@@ -113,13 +113,13 @@ class RoomServiceTests(unittest.TestCase):
         self.assertEqual(len(clients[0].receive(user_message(2000,wire))),1)
         self.assertEqual(rooms.rooms[room['RoomId']]['BattleCharacters']['alice'][6],100)
         for values in ({6:101},{7:11},{6:-1},{6:True}):
-            invalid_recovery = creation | {4:character | values,7:'bob'}
+            invalid_recovery = creation | {4:character | values,100:'bob'}
             with self.assertRaises(ProtocolError):
                 service(clients[0].session,2000,rpc_request(10,42,msgpack.packb(invalid_recovery)),True)
         self.assertEqual(clients[1].notifications(),[])
         service.battle_character_provider = original_character_provider
         damaged = creation | {2:{1:12.0,3:-4.0},3:{2:0.5,4:0.5},
-                              4:character | {6:50,7:5},7:'bob'}
+                              4:character | {6:50,7:5},100:'bob'}
         service(clients[0].session,2000,rpc_request(10,42,msgpack.packb(damaged)),True)
         peer_frame = FrameDecoder().feed(clients[1].notifications()[0])[0]
         _,peer_body = read_user_message(peer_frame[1])
@@ -127,6 +127,7 @@ class RoomServiceTests(unittest.TestCase):
         self.assertEqual(msgpack.unpackb(peer_payload,strict_map_key=False)[4][6],50)
         self.assertEqual(msgpack.unpackb(peer_payload,strict_map_key=False)[2],damaged[2])
         self.assertEqual(msgpack.unpackb(peer_payload,strict_map_key=False)[3],damaged[3])
+        self.assertEqual(msgpack.unpackb(peer_payload,strict_map_key=False)[100],'bob')
         self.assertEqual(rooms.rooms[room['RoomId']]['BattleCharacters']['alice'][6],100)
         self.assertEqual(clients[1].notifications(),[])
         forged = dict(creation)
@@ -142,7 +143,7 @@ class RoomServiceTests(unittest.TestCase):
         self.assertEqual((sid,read_command_message(body)[0]),(2000,13))
         self.assertEqual(clients[0].receive(user_message(2000,enemy_wire)),[])
         self.assertEqual(clients[1].notifications(),[])
-        for altered in (enemy | {4:'unknown'},enemy | {5:'outsider'},enemy | {1:creation[1]}):
+        for altered in (enemy | {4:'unknown'},enemy | {100:'outsider'},enemy | {1:creation[1]}):
             with self.assertRaises(RoomError):
                 service(clients[0].session,2000,command_message(12,msgpack.packb(altered)),True)
         self.assertEqual(len(rooms.rooms[room['RoomId']]['EnemyObjects']),1)
@@ -154,7 +155,7 @@ class RoomServiceTests(unittest.TestCase):
         self.assertEqual((sid,read_command_message(body)[0]),(2000,28))
         service(clients[0].session,2000,minion_wire,True)
         self.assertEqual(clients[1].notifications(),[])
-        moved_minion = minion | {3:{1:3.0,2:4.0},4:{2:0.5,4:0.5},7:'bob'}
+        moved_minion = minion | {3:{1:3.0,2:4.0},4:{2:0.5,4:0.5},100:'bob'}
         service(clients[0].session,2000,command_message(27,msgpack.packb(moved_minion)),True)
         _,moved_body = read_user_message(FrameDecoder().feed(clients[1].notifications()[0])[0][1])
         moved_command,moved_payload = read_command_message(moved_body)
@@ -177,7 +178,7 @@ class RoomServiceTests(unittest.TestCase):
         sid,body = read_user_message(FrameDecoder().feed(clients[0].notifications()[0])[0][1])
         self.assertEqual((sid,read_command_message(body)[0]),(2000,25))
         self.assertEqual(clients[1].notifications(),[])
-        for targeted,command,target_field in [(creation,10,7),(enemy,12,5)]:
+        for targeted,command,target_field in [(creation,10,100),(enemy,12,100)]:
             request = targeted | {target_field:'bob'}
             if command == 12:
                 request.update({2:{1:8.0},3:{2:0.5,4:0.5}})
@@ -229,9 +230,9 @@ class RoomServiceTests(unittest.TestCase):
             sid,body = read_user_message(payload)
             self.assertEqual((sid,read_command_message(body)[0]),(2000,command+1))
         destroy = command_message(14,msgpack.packb({1:creation[1]}))
-        for command,effect in [(20,{1:creation[1],2:1,3:1,6:True}),
+        for command,effect in [(20,{1:creation[1],2:1,3:1,30:True}),
                                (29,{1:creation[1],2:1,3:7,5:[1],10:{1:1.0}}),
-                               (33,{1:creation[1],2:7,3:1,4:b'data',6:'bob'}),
+                               (33,{1:creation[1],2:7,3:1,4:b'data',100:'bob'}),
                                (31,{1:creation[1],2:7})]:
             effect_wire = command_message(command,msgpack.packb(effect))
             with self.assertRaises(RoomError): service(clients[1].session,2000,effect_wire,True)

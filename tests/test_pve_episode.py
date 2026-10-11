@@ -8,10 +8,18 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1] / 'src'))
 from pve_episode import RaidEpisodeLoader, raid_enemy_detail
 
 
+def native_episodes(root, ids=('raid','playable','PvE_Season001')):
+    extracted = root / 'extract/masterdata'
+    extracted.mkdir(parents=True,exist_ok=True)
+    (extracted / 'EpisodeMasterDataObject.json').write_text(
+        json.dumps({'Datas':[{'ID':identity} for identity in ids]}),encoding='utf-8')
+
+
 class EpisodeLoaderTests(unittest.TestCase):
     def test_visual_timeline_uses_selected_layout_and_rejects_empty_data(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            native_episodes(root)
             layout = root / 'extract/masterdatadebug/episode/layout'
             layout.mkdir(parents=True)
             source = layout / 'EpisodeCheckPointMasterDataObject.json'
@@ -29,6 +37,7 @@ class EpisodeLoaderTests(unittest.TestCase):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            native_episodes(root)
             scenario = root/'masterdata/scenario'
             scenario.mkdir(parents=True)
             (scenario/'scenario.json').write_text(json.dumps([dict(Id='cp',ScenarioNo=1,
@@ -51,6 +60,7 @@ class EpisodeLoaderTests(unittest.TestCase):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            native_episodes(root)
             scenario = root/'masterdata/scenario'
             scenario.mkdir(parents=True)
             (scenario/'scenario.json').write_text(json.dumps([dict(Id='cp',ScenarioNo=1,
@@ -70,8 +80,9 @@ class EpisodeLoaderTests(unittest.TestCase):
         from scripts.adapt.episode_data.gimmicks import adapt_gimmicks_for_episode_layout
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            native_episodes(root)
             extracted = root / 'extract/masterdata'
-            extracted.mkdir(parents=True)
+            extracted.mkdir(parents=True,exist_ok=True)
             (root / 'masterdata').mkdir()
             for filename in ('EpisodeMasterDataObject.json','StageLocationMasterDataObject.json'):
                 (extracted / filename).write_text(json.dumps({'Datas':[]}),encoding='utf-8')
@@ -92,6 +103,7 @@ class EpisodeLoaderTests(unittest.TestCase):
     def test_distinct_scenario_and_layout_mapping_preserves_combat_and_order(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            native_episodes(root)
             scenario = root / 'masterdata/scenario'
             scenario.mkdir(parents=True)
             layout = root / 'extract/masterdatadebug/episode/layout'

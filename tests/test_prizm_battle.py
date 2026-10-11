@@ -74,32 +74,35 @@ class BattleTests(unittest.TestCase):
             with self.assertRaises(ProtocolError): game_over_request(rpc_request(0,42,msgpack.packb(altered)))
     def test_status_action_and_buff_native_translation_and_types(self):
         guid = {1:bytes(range(16))}
-        requests = [(20,{1:guid,2:1,3:2**32-1,4:1.0,5:-1,6:True,7:False}),
-                    (29,{1:guid,2:1,3:-1,4:1,5:[1,-1],6:0,7:1,8:1,9:1.0,10:{1:1.0},11:'bob'}),
-                    (31,{1:guid,2:-1}),
-                    (33,{1:guid,2:-1,3:1,4:b'payload',5:'data',6:'bob'})]
+        requests = [(20,{1:guid,2:1,3:2**32-1,10:1.0,20:-1,30:True,31:False}),
+                    (29,{1:guid,2:1,3:-1,4:1,5:[1,-1],6:0,7:1,8:1,9:1.0,10:{1:1.0},100:'bob'}),
+                    (31,{1:guid,2:-1,100:'bob'}),
+                    (33,{1:guid,2:-1,3:1,4:b'payload',5:'data',100:'bob'})]
         for command,request in requests:
             parsed,body,recipient = object_effect_request(command_message(command,msgpack.packb(request)))
             self.assertEqual((parsed,body),(command,request))
-            self.assertEqual(recipient,'bob' if command in (29,33) else None)
+            self.assertEqual(recipient,'bob' if command in (29,31,33) else None)
             peer,payload = read_command_message(object_effect_notification(command,request))
             self.assertEqual(peer,command+1)
             self.assertEqual(msgpack.unpackb(payload,strict_map_key=False),request)
-        for command,request in [(20,{1:guid,3:True}),(20,{1:guid,4:float('inf')}),
+        for command,request in [(20,{1:guid,3:True}),(20,{1:guid,10:float('inf')}),
+                                (20,{1:guid,30:1}),(20,{1:guid,20:True}),(20,{1:guid,4:1.0}),
                                 (29,{1:guid,5:[False]}),(29,{1:guid,2:2**63}),
                                 (29,{1:guid,10:{1:float('nan')}}),
-                                (31,{1:guid,3:False}),(33,{1:guid,4:[]})]:
+                                (31,{1:guid,3:'bob'}),(33,{1:guid,4:[]}),
+                                (29,{1:guid,11:'bob'}),(33,{1:guid,6:'bob'}),
+                                (31,{1:guid,100:False})]:
             with self.assertRaises(ProtocolError):
                 object_effect_request(command_message(command,msgpack.packb(request)))
     def test_minion_native_owner_guid_and_translation(self):
-        request = {1:{1:bytes(range(16))},2:{1:bytes(range(1,17))},3:{},4:{4:1.0},5:'minion'}
+        request = {1:{1:bytes(range(16))},2:{1:bytes(range(1,17))},3:{},4:{4:1.0},5:'minion',100:'bob'}
         parsed = create_minion_request(command_message(27,msgpack.packb(request)))
-        self.assertEqual(parsed,request | {6:'',7:''})
+        self.assertEqual(parsed,request | {6:''})
         command,payload = read_command_message(create_minion_notification(parsed))
         self.assertEqual(command,28)
         self.assertEqual(msgpack.unpackb(payload,strict_map_key=False),parsed)
         for altered in (request | {2:request[1]},request | {5:''},request | {6:False},
-                        request | {3:{1:float('inf')}}):
+                        request | {3:{1:float('inf')}},request | {7:'bob'},request | {100:False}):
             with self.assertRaises(ProtocolError):
                 create_minion_request(command_message(27,msgpack.packb(altered)))
     def test_object_liveness_sender_translation_and_defaults(self):
@@ -169,12 +172,12 @@ class BattleTests(unittest.TestCase):
     def test_enemy_creation_native_one_way_translation(self):
         request = {1:{1:bytes(range(16))},2:{1:1.0},3:{4:1.0},4:'spawn'}
         parsed = create_enemy_request(command_message(12,msgpack.packb(request)))
-        self.assertEqual(parsed,request | {5:''})
+        self.assertEqual(parsed,request | {100:''})
         command,payload = read_command_message(create_enemy_notification(parsed))
         self.assertEqual(command,13)
         self.assertEqual(msgpack.unpackb(payload,strict_map_key=False),parsed)
         for altered in (request | {1:{1:b'bad'}},request | {2:{1:float('inf')}},
-                        request | {4:''},request | {5:False},request | {6:1}):
+                        request | {4:''},request | {5:'bob'},request | {100:False},request | {6:1}):
             with self.assertRaises(ProtocolError):
                 create_enemy_request(command_message(12,msgpack.packb(altered)))
     def test_create_player_rpc_reply_and_peer_notification(self):
@@ -182,11 +185,15 @@ class BattleTests(unittest.TestCase):
         character = {1:'pl001',2:'master',3:'Alice',4:1,5:0,6:100,7:10,8:[],9:[],10:[]}
         request = {1:{1:bytes(range(16))},2:{1:1.0},3:{4:1.0},
                    4:{key:value for key,value in character.items() if value},
-                   6:player_payload(authoritative)}
+                   6:player_payload(authoritative),100:'bob'}
         req_id,result = create_player_request(rpc_request(10,42,msgpack.packb(request)),authoritative,character)
         self.assertEqual(req_id,42)
         self.assertEqual(result[4],character)
         self.assertEqual(result[6],player_payload(authoritative))
+        for native in (request | {6:None},{key:value for key,value in request.items() if key != 6}):
+            _,normalized = create_player_request(rpc_request(10,42,msgpack.packb(native)),
+                                                authoritative,character)
+            self.assertEqual(normalized[6],player_payload(authoritative))
         self.assertEqual(msgpack.unpackb(create_player_reply(authoritative),strict_map_key=False),
                          {1:player_payload(authoritative)})
         command,payload = read_command_message(create_player_notification(result))
@@ -195,7 +202,8 @@ class BattleTests(unittest.TestCase):
         import copy
         for key,value in [(1,{1:bytes(16)}),(2,{1:float('nan')}),
                           (4,character | {6:999}),
-                          (6,player_payload(player('bob'))),(5,True),(7,False)]:
+                          (6,player_payload(player('bob'))),(6,{}),(6,False),
+                          (5,True),(100,False),(7,'bob')]:
             forged = copy.deepcopy(request)
             forged[key] = value
             with self.subTest(key=key),self.assertRaises(ProtocolError):

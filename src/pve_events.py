@@ -33,7 +33,7 @@ class EpisodeCatalog:
                 _version(row[field])
 
     def resolve_episode(self, identity):
-        """Resolve native event-link IDs to installed scenario identities."""
+        """Resolve event-link IDs to their canonical native episode identity."""
         if type(identity) is not str or not identity:
             raise ValueError('Invalid event episode identity.')
         matches = {row['EpisodeId'] for row in self.links
@@ -105,11 +105,21 @@ class ScheduledCatalog:
         return self.episodes.episode_scope(event_id,difficulty,power,platform,version)
 
     def eligible_event(self, episode_id, power, platform, version):
-        matches = set()
+        link = self.eligible_link(episode_id,power,platform,version)
+        return link['EventId'],link['Difficulty']
+
+    def eligible_link(self, identity, power, platform, version):
+        """Keep a native event-link selection distinct from its shared arena."""
+        if type(identity) is not str or not identity:
+            raise ValueError('Invalid event episode identity.')
+        matches = []
         for row in self.episodes.links:
-            if row['EpisodeId'] == episode_id and episode_id in self.episode_scope(
+            if identity in (row['EpisodeId'],row['EpisodePveEventId']) and row['EpisodeId'] in self.episode_scope(
                     row['EventId'],row['Difficulty'],power,platform,version):
-                matches.add((row['EventId'],row['Difficulty']))
+                # A weaker link to the same arena must not authorize this link.
+                minimum = row['MinVerAndroid'] if platform == 'android' else row['MinVerIOS']
+                if power >= row['RequiredPower'] and _version(version) >= _version(minimum):
+                    matches.append(row)
         if len(matches) != 1:
             raise ValueError('Episode must resolve to one active eligible event.')
-        return next(iter(matches))
+        return copy.deepcopy(matches[0])

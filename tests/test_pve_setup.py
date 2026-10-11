@@ -11,7 +11,7 @@ from pve_preparation import BattleAssembler
 
 class SetupTests(unittest.IsolatedAsyncioTestCase):
     async def test_factory_wires_catalog_account_providers_and_installed_battle_policy(self):
-        catalog = SimpleNamespace(episodes=SimpleNamespace(links=[{'EpisodeId':'raid'}]),
+        catalog = SimpleNamespace(episodes=SimpleNamespace(links=[{'EpisodeId':'raid','EpisodePveEventId':'link'}]),
                                   eligible_event=Mock())
         reader = lambda account:dict(Power=99999,Platform='android',ClientVersion='1.6.0')
         arguments = dict(eligibility_provider=reader,room_settings_provider=reader,

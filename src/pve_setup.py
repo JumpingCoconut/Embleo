@@ -17,6 +17,8 @@ def installed_runtime_factory(capacity, data_root, database, ordering,
     Operator config supplies verified event metadata, account readers and
     public connection information. No endpoints, schedules or player data are
     invented here. Configuring this factory does not start a listener.
+    Definitions may use unique native episode keys, or event-link keys with
+    an explicit canonical EpisodeId when difficulties share an arena.
     """
     if type(capacity) is not int or not 1 <= capacity <= 32:
         raise ValueError('Invalid raid capacity.')
@@ -29,20 +31,30 @@ def installed_runtime_factory(capacity, data_root, database, ordering,
         if provider is not None and not callable(provider):
             raise ValueError('Invalid optional raid provider.')
     linked = {row['EpisodeId'] for row in event_catalog.episodes.links}
-    if not linked or type(definitions) is not dict or linked != set(definitions):
+    bindings = {row['EpisodePveEventId'] for row in event_catalog.episodes.links}
+    if (not linked or type(definitions) is not dict
+            or set(definitions) not in (linked,bindings)
+            or any(type(row) is not dict for row in definitions.values())):
         raise ValueError('Raid catalog and installed episode definitions must agree.')
+    bound = set(definitions) == bindings and bindings != linked
+    if bound and any(definitions[row['EpisodePveEventId']].get('EpisodeId') != row['EpisodeId']
+                     for row in event_catalog.episodes.links):
+        raise ValueError('Raid binding definition must match its canonical native episode.')
     assembler = installed_battle_assembler(data_root,database,ordering,
         deepcopy(definitions),deepcopy(base_visuals),master_group,extra_saves,level_overrides)
     def validate_participant(room, prepared, character_id, overrides):
         eligibility = eligibility_provider(prepared.account_id)
         power = prepared.character(prepared.account_id,character_id,overrides)['Power']
-        context = event_catalog.eligible_event(room['EpisodeId'],power,
+        context = event_catalog.eligible_event(room.get('EpisodePveEventId',room['EpisodeId']),power,
                                                eligibility['Platform'],eligibility['ClientVersion'])
         if 'EventId' in room and context != (room['EventId'],room['Difficulty']):
             raise ValueError('Prepared room event is no longer eligible.')
     assembler.eligibility_validator = validate_participant
-    for episode_id in sorted(linked):
-        assembler.response_builder.for_room({'EpisodeId':episode_id,'BattleId':'preflight'})
+    preflight = ([{'EpisodeId':row['EpisodeId'],'EpisodePveEventId':row['EpisodePveEventId'],
+                   'BattleId':'preflight'} for row in event_catalog.episodes.links] if bound else
+                 [{'EpisodeId':episode_id,'BattleId':'preflight'} for episode_id in sorted(linked)])
+    for room in preflight:
+        assembler.response_builder.for_room(room)
     limits = deepcopy(listener_limits or {})
 
     def factory():

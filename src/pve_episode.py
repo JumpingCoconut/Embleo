@@ -1,4 +1,4 @@
-"""Explicit mapping between installed raid scenarios and layout directories."""
+"""Map raid bindings to native episodes, installed scenarios and layouts."""
 
 import json
 from copy import deepcopy
@@ -30,9 +30,33 @@ class RaidEpisodeLoader:
         self.root = Path(data_root).resolve()
         self.definitions = deepcopy(definitions)
 
+    def _definition(self, identity):
+        if type(identity) is not str or identity not in self.definitions:
+            raise ValueError('Raid episode is not installed in the catalog.')
+        definition = self.definitions[identity]
+        if type(definition) is not dict:
+            raise ValueError('Invalid installed raid definition.')
+        episode_id = definition.get('EpisodeId',identity)
+        if type(episode_id) is not str or not episode_id:
+            raise ValueError('Canonical native raid episode required.')
+        source = self.root / 'extract/masterdata/EpisodeMasterDataObject.json'
+        with source.open(encoding='utf-8-sig') as stream:
+            episodes = json.load(stream)['Datas']
+        if episode_id not in {row['ID'] for row in episodes}:
+            raise ValueError('Raid episode must exist in installed native EpisodeInfo data.')
+        return definition,episode_id
+
+    def definition_key(self, room):
+        binding = room.get('EpisodePveEventId',room['EpisodeId'])
+        key = binding if binding in self.definitions else room['EpisodeId']
+        _,episode_id = self._definition(key)
+        if episode_id != room['EpisodeId']:
+            raise ValueError('Raid binding differs from the room native episode.')
+        return key
+
     def visual_settings(self, episode_id):
         """Use checkpoint visual timelines; the native client requires a first row."""
-        definition = self.definitions[episode_id]
+        definition,_ = self._definition(episode_id)
         directory = self.root / 'extract/masterdatadebug/episode'
         layout = (directory / definition['LayoutId']).resolve()
         if layout.parent != directory.resolve():
@@ -51,9 +75,7 @@ class RaidEpisodeLoader:
         return sorted(settings, key=lambda row: row['ScenarioNo'])
 
     def __call__(self, episode_id):
-        if type(episode_id) is not str or episode_id not in self.definitions:
-            raise ValueError('Raid episode is not installed in the catalog.')
-        definition = self.definitions[episode_id]
+        definition,episode_id = self._definition(episode_id)
         location_episode_id = definition.get('LocationEpisodeId',episode_id)
         if type(location_episode_id) is not str or not location_episode_id:
             raise ValueError('Installed episode location identity required.')

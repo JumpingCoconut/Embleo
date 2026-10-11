@@ -91,7 +91,7 @@ def game_over_confirm_reply(report):
 
 def object_effect_request(body):
     command,payload = read_command_message(body)
-    sizes = {20:7,29:11,31:3,33:6}
+    sizes = {20:7,29:10,31:2,33:5}
     if command not in sizes:
         raise ProtocolError('Unsupported object effect command.')
     try:
@@ -100,20 +100,22 @@ def object_effect_request(body):
     except (ValueError, msgpack.UnpackException):
         raise ProtocolError('Invalid object effect payload.') from None
     if (type(request) is not dict or 1 not in request
-            or any(type(key) is not int or key not in range(1,sizes[command]+1) for key in request)):
+            or any(type(key) is not int or key not in
+                   ((1,2,3,10,20,30,31) if command == 20 else (*range(1,sizes[command]+1),100))
+                   for key in request)):
         raise ProtocolError('Invalid object effect fields.')
     guid = request[1]
     if (type(guid) is not dict or set(guid) != {1} or type(next(iter(guid))) is not int
             or type(guid[1]) is not bytes or len(guid[1]) != 16 or guid[1] == bytes(16)):
         raise ProtocolError('Invalid object effect GUID.')
-    integer_fields = {20:(2,5),29:(3,4,6,7,8),31:(2,),33:(2,3)}[command]
+    integer_fields = {20:(2,20),29:(3,4,6,7,8),31:(2,),33:(2,3)}[command]
     if any(type(request.get(key,0)) is not int or not -(2**31) <= request.get(key,0) < 2**31
            for key in integer_fields):
         raise ProtocolError('Invalid object effect integer.')
     if command == 20:
         if (type(request.get(3,0)) is not int or not 0 <= request.get(3,0) < 2**32
-                or type(request.get(4,0.0)) not in (int,float) or not math.isfinite(request.get(4,0.0))
-                or any(type(request.get(key,False)) is not bool for key in (6,7))):
+                or type(request.get(10,0.0)) not in (int,float) or not math.isfinite(request.get(10,0.0))
+                or any(type(request.get(key,False)) is not bool for key in (30,31))):
             raise ProtocolError('Invalid status action values.')
     elif command == 29:
         if (type(request.get(2,0)) is not int or not -(2**63) <= request.get(2,0) < 2**63
@@ -130,7 +132,7 @@ def object_effect_request(body):
         if (request.get(4) is not None and type(request[4]) is not bytes
                 or request.get(5) is not None and type(request[5]) is not str):
             raise ProtocolError('Invalid buff command values.')
-    recipient_field = {29:11,31:3,33:6}.get(command)
+    recipient_field = 100 if command in (29,31,33) else None
     if recipient_field and request.get(recipient_field) is not None and type(request[recipient_field]) is not str:
         raise ProtocolError('Invalid object effect recipient.')
     return command,request,request.get(recipient_field) or None
@@ -151,7 +153,7 @@ def create_minion_request(body):
                                  max_map_len=7,max_array_len=0,max_str_len=4096,max_bin_len=16)
     except (ValueError, msgpack.UnpackException):
         raise ProtocolError('Invalid minion creation payload.') from None
-    if (type(request) is not dict or any(type(key) is not int or key not in range(1,8) for key in request)
+    if (type(request) is not dict or any(type(key) is not int or key not in (1,2,3,4,5,6,100) for key in request)
             or any(key not in request for key in (1,2,3,4,5))):
         raise ProtocolError('Invalid minion creation fields.')
     for key in (1,2):
@@ -168,9 +170,9 @@ def create_minion_request(body):
                 or any(type(value) not in (int,float) or not math.isfinite(value) for value in vector.values())):
             raise ProtocolError('Invalid minion transform.')
     if (type(request[5]) is not str or not request[5]
-            or any(type(request.get(key,'')) is not str for key in (6,7))):
+            or any(type(request.get(key,'')) is not str for key in (6,100))):
         raise ProtocolError('Invalid minion identity, parameters or recipient.')
-    return request | {6:request.get(6,''),7:request.get(7,'')}
+    return request | {6:request.get(6,''),100:request.get(100,'')}
 
 
 def create_minion_notification(request):
@@ -320,7 +322,7 @@ def create_enemy_request(body):
                                  max_map_len=5,max_array_len=0,max_str_len=512,max_bin_len=16)
     except (ValueError, msgpack.UnpackException):
         raise ProtocolError('Invalid enemy creation payload.') from None
-    if (type(request) is not dict or any(type(key) is not int or key not in range(1,6) for key in request)
+    if (type(request) is not dict or any(type(key) is not int or key not in (1,2,3,4,100) for key in request)
             or any(key not in request for key in (1,2,3,4))):
         raise ProtocolError('Invalid enemy creation fields.')
     guid = request[1]
@@ -333,9 +335,9 @@ def create_enemy_request(body):
                 or any(type(field) is not int or field not in range(1,dimensions+1) for field in vector)
                 or any(type(value) not in (int,float) or not math.isfinite(value) for value in vector.values())):
             raise ProtocolError('Invalid enemy object transform.')
-    if type(request[4]) is not str or not request[4] or type(request.get(5,'')) is not str:
+    if type(request[4]) is not str or not request[4] or type(request.get(100,'')) is not str:
         raise ProtocolError('Invalid enemy identity or recipient.')
-    return request | {5:request.get(5,'')}
+    return request | {100:request.get(100,'')}
 
 
 def create_enemy_notification(request):
@@ -371,6 +373,8 @@ def create_player_request(body, player, character_data):
 
     character_data is the server-built numeric CharacterData map, not an HTTP
     request value. Omitted default fields are merged before comparison.
+    Native clients may omit or send null Player; the authenticated snapshot
+    supplies it. Any supplied Player must still match that snapshot.
     """
     character_data = character_data_payload(character_data)
     command,request_id,payload = read_rpc_request(body)
@@ -381,8 +385,8 @@ def create_player_request(body, player, character_data):
                                  max_map_len=16,max_array_len=32,max_str_len=512,max_bin_len=16)
     except (ValueError, msgpack.UnpackException):
         raise ProtocolError('Invalid player creation payload.') from None
-    if (type(request) is not dict or any(type(key) is not int or key not in range(1,8) for key in request)
-            or any(key not in request for key in (1,2,3,4,6))):
+    if (type(request) is not dict or any(type(key) is not int or key not in (1,2,3,4,5,6,100) for key in request)
+            or any(key not in request for key in (1,2,3,4))):
         raise ProtocolError('Invalid player creation fields.')
     guid = request[1]
     if (type(guid) is not dict or set(guid) != {1} or type(next(iter(guid))) is not int
@@ -406,20 +410,20 @@ def create_player_request(body, player, character_data):
                    for key in (6,7))
             or any(type(value) is not type(character_data[key]) for key,value in actual.items())):
         raise ProtocolError('Character data differs from authoritative player.')
-    supplied_player = request[6]
-    if (type(supplied_player) is not dict
+    supplied_player = request.get(6)
+    if (supplied_player is not None and (type(supplied_player) is not dict
             or any(type(key) is not int or key not in expected_player for key in supplied_player)
             or any(value != expected_player[key] or type(value) is not type(expected_player[key])
                    for key,value in supplied_player.items())
-            or supplied_player.get(1) != player['UserId']):
+            or supplied_player.get(1) != player['UserId'])):
         raise ProtocolError('Player creation identity or statistics mismatch.')
     if type(request.get(5,0)) is not int or not -(2**31) <= request.get(5,0) < 2**31:
         raise ProtocolError('Invalid player creation type.')
-    if type(request.get(7,'')) is not str:
+    if type(request.get(100,'')) is not str:
         raise ProtocolError('Invalid player creation recipient.')
     result = copy.deepcopy(request)
     result.update({4:copy.deepcopy(character_data | {key:normalized[key] for key in (6,7)}),5:request.get(5,0),
-                   6:expected_player,7:request.get(7,'')})
+                   6:expected_player,100:request.get(100,'')})
     return request_id,result
 
 

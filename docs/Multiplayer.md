@@ -1560,6 +1560,15 @@ BaseCharacterId getter. This is evidence that restoration must follow the
 actual battle identity rather than blindly retaining the lobby selection.
 
 The downloaded episode response supplies the scene's per-episode master data.
+Raid event links and native arena episodes have separate identities. Several
+difficulty links can share one native episode while selecting different scenario
+definitions. Keep `EpisodePveEventId` when creating and preparing a room; use
+the canonical `EpisodeId` in the room and battle response. The installed native
+EpisodeInfo catalog is `extract/masterdata/EpisodeMasterDataObject.json`, whose
+`Datas[*].ID` values must include that canonical ID. A scenario filename alone
+does not establish a native episode. `RaidEpisodeLoader` validates this before
+preparation, and binding-keyed definitions specify their canonical `EpisodeId`.
+
 DownloadManager.StoreEpisodeMasterData builds StartEpisodeInfo and calls
 StartEpisodeHelper.StoreMasterDataFromStartEpisode. Its async body
 (0x2F2DBCC) uses the explicit episode ID when nonempty and invokes
@@ -1595,6 +1604,13 @@ Android event-detail initialization indexes one `EpisodePveEvents` entry for
  the installed page; a single-entry diagnostic event triggers an index error
  before room discovery. The native create request places the selected
  `EpisodePveEventId` in its `EpisodeId` field. HTTP admission and start resolve
- that link identity to the installed scenario, rejecting identities that collide
- across scenarios. Schedule and account eligibility still use the installed
- scenario identity.
+ that link identity to the canonical native episode while retaining the selected
+ difficulty binding for scenario loading and eligibility. Different difficulties
+ may share a native episode; their prepared bindings remain distinct.
+
+Battle MessagePack fields follow the native serializers rather than positional
+field counts. Player, enemy, minion and buff messages use recipient key `100`.
+Status actions use keys `1, 2, 3, 10, 20, 30, 31` for GUID, type, sequence,
+double, integer and two booleans. A null or omitted player in player creation
+uses the authenticated server snapshot; supplied player data must still match
+that snapshot. Ownership, recipient membership and replay checks remain required.
