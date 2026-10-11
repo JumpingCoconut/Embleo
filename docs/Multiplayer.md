@@ -260,6 +260,17 @@ and `api/event/list` remain empty. Complete event configuration, battle
 handling and reward/ranking policy still need implementation. Publishing a
 tile is distinct from making room joining and battles work.
 
+Native room-list and matching request constructors leave `Difficulty` at zero:
+`GetRoomList` at `0x36A07E4` and `GetMatchingList` at `0x36A0388` assign event
+and version fields, while matching also supplies power. Their constructors
+(`0x1775A04`, `0x1775DE4`) only call the base constructor. The room-list UI
+filters returned `Room.Difficulty` in `UpdateList` (`0x309FB30`, comparison at
+`0x309FD48`); matching has no selected-difficulty argument. Therefore HTTP
+room-list and matching treat zero as event-wide eligible discovery, retaining
+schedule, power, version and room visibility checks. Nonzero requests remain
+concrete tier selections. The catalog's literal zero-tier eligibility and
+selected-link room creation remain unchanged.
+
 The event-selection HTTP contracts narrow the next discovery milestone:
 
 | Route | Request fields | Response fields |

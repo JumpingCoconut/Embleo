@@ -65,14 +65,23 @@ class EventTests(unittest.TestCase):
         self.assertEqual([room['Difficulty'] for room in service.discover_event('viewer','event',2,'v')], [2])
         self.assertEqual(service.discover_event('viewer','other',0,'v'), [])
         self.assertEqual(service.discover_event('viewer','event',0,'wrong'), [])
-        admitted = service.match_event(player('viewer-join'),'v','event',0)[0]
-        self.assertEqual(admitted['RoomId'],public[0]['RoomId'])
+        service.player_provider = player
+        service.connection_provider = lambda room,tcp,udp:dict(RoomId=room['RoomId'],
+            SearchId=room['SearchId'],JwtTcp=tcp,JwtUdp=udp,Tcp='localhost:1234',Udp='localhost:1235')
+        admitted = service.matching_http('viewer-join','event',0,'v')
+        self.assertEqual(admitted['Prizm']['RoomId'],public[0]['RoomId'])
         now[0] = start+timedelta(hours=1)
         self.assertEqual(service.discover_event('viewer','event',0,'v'), [])
         # Native discovery zero remains event-wide even with a literal zero tier.
         # The catalog itself still supports concrete zero-tier eligibility.
         catalog.episodes.links[0]['Difficulty'] = 0
+        catalog.episodes.links[1]['Difficulty'] = 1
         now[0] = start
+        zero = service.create_event(player('zero-host'),'tier1','v',1)[0]
+        one = service.create_event(player('one-host'),'tier2','v',1)[0]
+        discovered = service.discover_event('viewer','event',0,'v')
+        self.assertIn(zero['RoomId'],[entry['RoomId'] for entry in discovered])
+        self.assertIn(one['RoomId'],[entry['RoomId'] for entry in discovered])
         scope,context = service._discovery_scope('viewer','event',0)
         self.assertEqual(context,('event',None))
         self.assertEqual(scope,('episode',))

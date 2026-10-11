@@ -406,8 +406,8 @@ class RoomService:
 
     def match_event(self, player, version, event_id, difficulty):
         with self.rooms.lock:
-            scope,context = self._discovery_scope(player['UserId'],event_id,difficulty)
-            return self.match_checked(player,version,scope,context)
+            scope = self._event_scope(player['UserId'],event_id,difficulty)
+            return self.match_checked(player,version,scope,(event_id,difficulty))
 
     def join_event(self, room_id, player, version, route, event_id, difficulty):
         with self.rooms.lock:
