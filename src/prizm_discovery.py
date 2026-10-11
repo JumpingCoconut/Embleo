@@ -100,7 +100,13 @@ def room_view(room, required_power, difficulty, icon_url, emblem_id,
     level = host.get('CharacterLevel')
     if type(level) is not int or not 0 <= level < 2**31:
         raise ValueError('Invalid host level.')
-    return dict(RoomId=room['RoomId'],EpisodeId=room['EpisodeId'],
+    # Native guest lobby lookup compares this wire field to
+    # EpisodePveEvent.EpisodePveEventId, not the canonical battle stage ID.
+    # Keep the stage identity in the internal room for battle preparation.
+    binding = room.get('EpisodePveEventId',room['EpisodeId'])
+    if type(binding) is not str or not binding:
+        raise ValueError('Invalid room event binding.')
+    return dict(RoomId=room['RoomId'],EpisodeId=binding,
                 RequiredPower=required_power,Difficulty=difficulty,
                 HostUserId=host['UserId'],HostCharacterId=host['CharacterId'],
                 HostName=host['Name'],HostLevel=level,IconUrl=icon_url,

@@ -81,6 +81,17 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn('Players',result)
         self.assertNotIn('PveVersion',result)
 
+    def test_http_event_binding_preserves_internal_stage_and_legacy_fallback(self):
+        room = Rooms(2).create(player(),'stage','v',False,0,1,(60,3,20))
+        values = [100,2,'icon','emblem',False,False,1234]
+        self.assertEqual(room_view(room,*values)['EpisodeId'],'stage')
+        room['EpisodePveEventId'] = 'event-normal'
+        self.assertEqual(room_view(room,*values)['EpisodeId'],'event-normal')
+        self.assertEqual(room['EpisodeId'],'stage')
+        for invalid in (None,'',1):
+            with self.subTest(binding=invalid),self.assertRaises(ValueError):
+                room_view(dict(room,EpisodePveEventId=invalid),*values)
+
     def test_requires_valid_event_and_profile_metadata(self):
         room = Rooms(2).create(player(),'ep','v',False,0,1,(60,3,20))
         values = [100,2,'icon','emblem',False,False,1234]

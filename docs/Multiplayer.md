@@ -1675,6 +1675,13 @@ Android event-detail initialization indexes one `EpisodePveEvents` entry for
  difficulty binding for scenario loading and eligibility. Different difficulties
  may share a native episode; their prepared bindings remain distinct.
 
+HTTP room-list, room-info and matching responses also place the selected
+`EpisodePveEventId` in `Room.EpisodeId`. The native guest lobby compares that
+field to its event entries before reading the recommended power. Returning the
+canonical stage ID leaves the guest's current event unset and causes a null
+reference during character power display. Keep the canonical stage ID in the
+internal room for battle preparation; only the HTTP projection uses the binding.
+
 Battle MessagePack fields follow the native serializers rather than positional
 field counts. Player, enemy, minion and buff messages use recipient key `100`.
 Status actions use keys `1, 2, 3, 10, 20, 30, 31` for GUID, type, sequence,
