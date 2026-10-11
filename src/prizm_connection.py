@@ -17,6 +17,11 @@ from prizm_sessions import SessionError
 
 
 class Connection:
+    # Four dispatch turns of small messages. The byte cap also bounds large
+    # messages, independently of the existing notification-count limit.
+    MAX_PENDING_FRAMES = 128
+    MAX_PENDING_BYTES = 4 * 1024 * 1024
+
     def __init__(self, registry, service_handler):
         self.registry = registry
         self.service_handler = service_handler
@@ -27,6 +32,9 @@ class Connection:
         self.pending = []
         self.pending_keys = []
         self.rejection_context = "transport"
+        self.pending_bytes = 0
+        self.outbound_ready = None
+        self.close_observer = None
 
     def notify(self, service, body, reliable=True, coalesce=None):
         if self.closed or self.session is None:
@@ -36,21 +44,33 @@ class Connection:
         outgoing = user_message(service,body,fallback=not reliable)
         if coalesce is not None and coalesce in self.pending_keys:
             index = self.pending_keys.index(coalesce)
+            if self.pending_bytes - len(self.pending[index]) + len(outgoing) > self.MAX_PENDING_BYTES:
+                self.close('queue_overflow')
+                return
+            self.pending_bytes -= len(self.pending[index])
             self.pending.pop(index)
             self.pending_keys.pop(index)
             self.pending.append(outgoing)
             self.pending_keys.append(coalesce)
+            self.pending_bytes += len(outgoing)
+            if self.outbound_ready is not None:
+                self.outbound_ready.set()
             return
-        if len(self.pending) >= 128:
-            self.close()
+        if (len(self.pending) >= self.MAX_PENDING_FRAMES
+                or self.pending_bytes + len(outgoing) > self.MAX_PENDING_BYTES):
+            self.close('queue_overflow')
             return
         self.pending.append(outgoing)
         self.pending_keys.append(coalesce)
+        self.pending_bytes += len(outgoing)
+        if self.outbound_ready is not None:
+            self.outbound_ready.set()
 
     def notifications(self):
         if self.closed:
             self.pending.clear()
             self.pending_keys.clear()
+            self.pending_bytes = 0
             return []
         if self.session is not None:
             try:
@@ -62,26 +82,35 @@ class Connection:
                 return []
         result, self.pending = self.pending, []
         self.pending_keys.clear()
+        self.pending_bytes = 0
         return result
 
-    def close(self):
+    def close(self, reason=None):
         if self.closed:
             return
         self.closed = True
+        if reason is not None and self.close_observer is not None:
+            self.close_observer(reason, len(self.pending), self.pending_bytes)
+        if self.outbound_ready is not None:
+            self.outbound_ready.set()
         self.pending.clear()
         self.pending_keys.clear()
+        self.pending_bytes = 0
         if self.session is not None:
             if hasattr(self.service_handler,'disconnected'):
                 self.service_handler.disconnected(self)
             self.registry.close(self.session.session_id)
 
     def receive(self, data):
+        return self.receive_frames(self.decoder.iter_feed(data))
+
+    def receive_frames(self, frames):
         if self.closed:
             raise ProtocolError('Connection is closed.')
         output = []
         operation = "transport"
         try:
-            for opcode, payload in self.decoder.feed(data):
+            for opcode, payload in frames:
                 operation = "transport"
                 if self.session is None:
                     if opcode != Opcode.HELLO_REQUEST:

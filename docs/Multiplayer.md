@@ -424,6 +424,26 @@ a TLS context at the same time is rejected. It never falls back automatically
 when TLS configuration is missing or invalid. Room credentials and protocol
 authentication are still required.
 
+The listener dispatches at most 32 decoded frames before yielding, preserving
+unfinished TCP framing across reads. Each socket has one writer in its owning
+handler; notifications wake that handler immediately instead of waiting for a
+read timeout. Replies and notifications retain the existing replies-first
+ordering within each dispatch batch. Reliable notifications are not coalesced.
+Each connection queues at most 128 notifications and 4 MiB of encoded output.
+A detached batch may also be in flight while the writer drains; it must drain
+within the configured write timeout before another batch is taken. These are
+emulator resource limits, not recovered client constants. Overflow and write
+timeout close the slow connection with fixed diagnostic reasons and pending
+queue counts recorded before cleanup. Outbound delivery still validates session
+revocation without refreshing inbound activity. Reader/wakeup tasks are owned
+and awaited by the handler during shutdown.
+
+`test_prizm_listener.py` exercises ordered delivery of 129 distinct reliable
+movement notifications over two verified loopback TLS sockets, using coalesced
+and fragmented writes, then pings both sockets. Controlled stalled writers
+exercise overflow/timeout isolation. These checks establish transport behavior;
+they do not establish gameplay on two Android clients.
+
 The operator must isolate that backend on loopback or a private container
 network reachable only by the trusted proxy. Never expose the unencrypted
 backend to the public network. The proxy's public certificate must satisfy

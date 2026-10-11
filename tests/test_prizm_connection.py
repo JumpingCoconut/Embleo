@@ -14,6 +14,24 @@ from prizm_protocol import (FrameDecoder, Opcode, ProtocolError, hello_request,
 
 
 class ConnectionTests(unittest.TestCase):
+    def test_outbound_byte_bound_and_coalescing_accounting(self):
+        self.connection.receive(hello_request(self.tcp))
+        self.connection.notify(1000, b'a', coalesce='replaceable')
+        self.connection.notify(1000, b'longer', coalesce='replaceable')
+        self.assertEqual(self.connection.pending_bytes, len(user_message(1000, b'longer')))
+        self.assertEqual(self.connection.notifications(), [user_message(1000, b'longer')])
+        self.assertEqual(self.connection.pending_bytes, 0)
+        closed = []
+        self.connection.close_observer = lambda *args:closed.append(args)
+        # Each frame remains legal, but four near-maximum frames exceed the
+        # byte limit including framing, long before the message-count limit.
+        payload = b'x' * (1024*1024-6)
+        for _ in range(4):
+            self.connection.notify(1000, payload)
+        self.assertEqual(closed, [('queue_overflow', 3, 3*(1024*1024+5))])
+        self.assertTrue(self.connection.closed)
+        self.assertEqual(self.connection.pending_bytes, 0)
+
     def test_native_empty_fallback_requires_authenticated_connection(self):
         self.connection.receive(hello_request(self.tcp))
         reply = self.connection.receive(fallback_request(''))

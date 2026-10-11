@@ -42,7 +42,7 @@ class SharedArenaTests(unittest.TestCase):
                 Platform='android',ClientVersion='1.6.0'),
             room_settings_provider=lambda episode:dict(Mode=1,SuspendLimits=(60,3,20)))
 
-    def test_four_links_preserve_canonical_wire_episode_and_distinct_difficulties(self):
+    def test_four_links_project_event_binding_and_preserve_internal_stage_and_difficulty(self):
         views = CatalogRoomViews(self.catalog,lambda *args:dict(IconUrl='',EmblemId='',
             IsFriend=False,IsGuild=False),lambda room:0)
         for index in range(4):
@@ -51,7 +51,7 @@ class SharedArenaTests(unittest.TestCase):
             self.assertEqual(room['EpisodeId'],EPISODE)
             self.assertEqual(room['EpisodePveEventId'],'link-'+str(index))
             wire = views('viewer',room)
-            self.assertEqual((wire['EpisodeId'],wire['Difficulty']),(EPISODE,11+index))
+            self.assertEqual((wire['EpisodeId'],wire['Difficulty']),('link-'+str(index),11+index))
             found = self.service.discover('viewer',(EPISODE,),'v',event_context=('event',11+index))
             self.assertEqual([entry['RoomId'] for entry in found],[room['RoomId']])
         with self.assertRaises(ValueError):

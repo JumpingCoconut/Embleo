@@ -13,7 +13,7 @@ class Diagnostics:
         self.counts = {}
         self.last_logged = {}
 
-    def record(self, reason, operation='transport'):
+    def record(self, reason, operation='transport', queue_frames=0, queue_bytes=0):
         # Call sites provide fixed labels only. Cardinality and warning volume
         # remain bounded even during malformed-client or reconnect storms.
         key = (reason, operation)
@@ -25,8 +25,8 @@ class Diagnostics:
             if key in self.last_logged and now - self.last_logged[key] < 30:
                 return
             self.last_logged[key] = now
-        self.logger.warning('raid_event reason=%s operation=%s count=%d',
-                            reason, operation, count)
+        self.logger.warning('raid_event reason=%s operation=%s count=%d queue_frames=%d queue_bytes=%d',
+                            reason, operation, count, queue_frames, queue_bytes)
 
 
 # SHA256 prefixes of source-defined rejection literals. Unknown exception text

@@ -29,12 +29,13 @@ class BitSummonTests(unittest.TestCase):
     def fixture(self):
         parent = b'p' * 16
         request = {1: {1: b'n' * 16}, 2: {1: parent}, 3: {}, 4: {},
-                   5: 'Bit', 6: '', 7: ''}
+                   5: 'Bit', 6: '', 100: ''}
         master = dict(CharacterId='pl021', UniqueParamData=json.dumps(
             {'m_Param_Int': [{'Key': 'MaxMinionCount', 'Value': 5}]}))
         room = dict(BattleCharacters={'alice': {1: 'pl021', 2: 'pl021'}},
                     PlayerObjects={parent: ('alice', {})},
-                    PreparedBattle={'alice': {'MasterGroup': {'characters': [master]}}},
+                    PreparedBattle={'alice': {'BattleId': 'battle',
+                        'MasterGroup': {'characters': [master]}}},
                     MinionObjects={})
         return room, request
 
@@ -53,7 +54,7 @@ class BitSummonTests(unittest.TestCase):
         room['PlayerObjects'][second_parent] = ('alice', {})
         self.assertFalse(policy('alice', room, request | {2: {1: second_parent}}))
         existing = next(iter(room['MinionObjects'].values()))[1]
-        self.assertTrue(policy('alice', room, existing | {7: 'bob'}))
+        self.assertTrue(policy('alice', room, existing | {100: 'bob'}))
         del room['MinionObjects'][existing[1][1]]
         self.assertTrue(policy('alice', room, request))
 
@@ -160,7 +161,7 @@ class BitSummonTests(unittest.TestCase):
         forged = decoy | {6: json.dumps(params | {'MaxHP': 999})}
         with self.assertRaises(RoomError):
             service(clients[0].session, 2000, command_message(27, msgpack.packb(forged)), True)
-        recovered = decoy | {6: json.dumps(params | {'HP': 20}), 7: 'bob'}
+        recovered = decoy | {6: json.dumps(params | {'HP': 20}), 100: 'bob'}
         service(clients[0].session, 2000, command_message(27, msgpack.packb(recovered)), True)
         _, body = read_user_message(FrameDecoder().feed(clients[1].notifications()[0])[0][1])
         _, payload = read_command_message(body)

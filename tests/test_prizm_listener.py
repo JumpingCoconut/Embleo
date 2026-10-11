@@ -19,6 +19,7 @@ from prizm_protocol import hello_request, FrameDecoder, read_handshake_response,
 from prizm_protocol import (fallback_request, user_message, rpc_request,
                             read_user_message, read_rpc_response,
                             command_message, read_command_message)
+from prizm_protocol import frame
 from prizm_runtime import Runtime
 from test_prizm_lobby import player
 from prizm_lobby import player_payload
@@ -45,6 +46,98 @@ class Writer:
 
 
 class ListenerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_shutdown_awaits_reader_and_propagates_unexpected_read_failure(self):
+        class Reader:
+            def __init__(self):
+                self.started = asyncio.Event()
+                self.finished = asyncio.Event()
+                self.fail = asyncio.Event()
+            async def read(self, size):
+                self.started.set()
+                try:
+                    await self.fail.wait()
+                    raise RuntimeError('reader bug')
+                finally:
+                    self.finished.set()
+        for fail in (False, True):
+            listener = Listener(SessionRegistry(), lambda *args: [])
+            reader, writer = Reader(), Writer()
+            task = asyncio.create_task(listener.handle(reader, writer))
+            await reader.started.wait()
+            if fail:
+                reader.fail.set()
+                with self.assertRaisesRegex(RuntimeError, 'reader bug'):
+                    await task
+            else:
+                await listener.stop()
+                self.assertTrue(task.cancelled())
+            self.assertTrue(reader.finished.is_set())
+            self.assertTrue(writer.closed)
+            self.assertEqual(listener.tasks, set())
+
+    async def test_stalled_writer_is_bounded_and_does_not_block_another_peer(self):
+        from prizm_connection import Connection
+        class Service:
+            def __init__(self):
+                self.connections = {}
+            def connected(self, connection):
+                self.connections[connection.session.admission.account_id] = connection
+            def __call__(self, *args):
+                return []
+        class StalledWriter(Writer):
+            def __init__(self):
+                super().__init__()
+                self.blocked = asyncio.Event()
+                self.release = asyncio.Event()
+                self.calls = 0
+            async def drain(self):
+                self.calls += 1
+                if self.calls > 1:
+                    self.blocked.set()
+                    await self.release.wait()
+        for overload in (False, True):
+            with self.subTest(overload=overload):
+                registry, service = SessionRegistry(), Service()
+                listener = Listener(registry, service, write_timeout=0.1)
+                readers = [asyncio.StreamReader(), asyncio.StreamReader()]
+                writers = [StalledWriter(), Writer()]
+                tasks = []
+                async def until(predicate):
+                    while not predicate():
+                        await asyncio.sleep(0)
+                try:
+                    for index, account in enumerate(('slow', 'fast')):
+                        token, _ = registry.issue(account, 'room', index+1)
+                        readers[index].feed_data(hello_request(token))
+                        tasks.append(asyncio.create_task(listener.handle(readers[index], writers[index])))
+                    await asyncio.wait_for(until(lambda:len(service.connections) == 2), 2)
+                    slow = service.connections['slow']
+                    slow.notify(2000, b'initial')
+                    await asyncio.wait_for(writers[0].blocked.wait(), 2)
+                    if overload:
+                        for _ in range(Connection.MAX_PENDING_FRAMES+1):
+                            slow.notify(2000, b'reliable')
+                        self.assertTrue(slow.closed)
+                        self.assertEqual(slow.pending_bytes, 0)
+                        self.assertEqual(slow.pending, [])
+                    # A different socket progresses while the writer is blocked.
+                    before = len(writers[1].data)
+                    ping = frame(Opcode.PING, struct.pack('<iQ', 8, 12345))
+                    readers[1].feed_data(ping)
+                    await asyncio.wait_for(until(lambda:len(writers[1].data) > before), 2)
+                    self.assertEqual(bytes(writers[1].data[before:]), ping)
+                    await asyncio.wait_for(tasks[0], 2)
+                    reason = 'queue_overflow' if overload else 'write_timeout'
+                    self.assertEqual(listener.diagnostics.counts[(reason, 'transport')], 1)
+                    self.assertTrue(writers[0].closed)
+                    self.assertFalse(writers[1].closed)
+                finally:
+                    await listener.stop()
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    self.assertTrue(all(result is None or isinstance(result, asyncio.CancelledError)
+                                        for result in results))
+                self.assertEqual(listener.tasks, set())
+
     async def test_real_verified_tls_lobby_exchange(self):
         await self._tls_battle_flow()
 
@@ -365,6 +458,40 @@ class ListenerTests(unittest.IsolatedAsyncioTestCase):
                     command,notification = read_command_message(payload)
                     self.assertEqual((service,command),(2000,11))
                     self.assertEqual(msgpack.unpackb(notification,raw=False,strict_map_key=False)[4],character)
+                # Coalesced and fragmented reliable movement, on two real TLS
+                # sockets with an actively reading peer. Distinct values expose
+                # drops/reordering; pings establish usability on both sockets.
+                # Installed-data snapshotting is intentionally expensive; the
+                # synthetic flow isolates scheduling from asset-copy costs.
+                for chunk_size in ((None, 17) if installed_root is None else ()):
+                    moves = [{1:creations[0][1],2:index,3:{},4:{}} for index in range(129)]
+                    wire = b''.join(user_message(2000, command_message(6,
+                        msgpack.packb(move))) for move in moves)
+                    async def collect():
+                        for move in moves:
+                            opcode, body = await receive(clients[1][0])
+                            service, payload = read_user_message(body)
+                            command, notification = read_command_message(payload)
+                            self.assertEqual((opcode, service, command), (7, 2000, 7))
+                            self.assertEqual(msgpack.unpackb(notification,
+                                raw=False, strict_map_key=False), move)
+                    collecting = asyncio.create_task(collect())
+                    try:
+                        if chunk_size is None:
+                            clients[0][1].write(wire)
+                        else:
+                            for start in range(0, len(wire), chunk_size):
+                                clients[0][1].write(wire[start:start+chunk_size])
+                        await clients[0][1].drain()
+                        await collecting
+                    finally:
+                        collecting.cancel()
+                        await asyncio.gather(collecting, return_exceptions=True)
+                    ping_payload = struct.pack('<iQ', 8, 12345)
+                    for reader, writer in clients:
+                        writer.write(frame(Opcode.PING, ping_payload))
+                        await writer.drain()
+                        self.assertEqual(await receive(reader), (Opcode.PING, ping_payload))
                 enemy_id = responses[0]['EpisodeDetail']['LayoutGroup']['Enemies'][0]['EpisodeEnemyId']
                 enemy = {1:{1:bytes(range(2,18))},2:{},3:{4:1.0},4:enemy_id}
                 clients[0][1].write(user_message(2000,command_message(12,msgpack.packb(enemy))))

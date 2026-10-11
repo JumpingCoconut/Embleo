@@ -52,9 +52,11 @@ class FrameDecoder:
         self.buffer = bytearray()
 
     def feed(self, data):
+        return list(self.iter_feed(data))
+
+    def iter_feed(self, data):
         # Consume incrementally so one read containing many frames does not
         # require retaining the entire batch in the decoder.
-        output = []
         position = 0
         while position < len(data):
             needed = FRAME_HEADER.size
@@ -80,9 +82,9 @@ class FrameDecoder:
             except ValueError as error:
                 raise ProtocolError('Unknown opcode.') from error
             if len(self.buffer) == FRAME_HEADER.size + length:
-                output.append((opcode, bytes(self.buffer[FRAME_HEADER.size:])))
+                decoded = (opcode, bytes(self.buffer[FRAME_HEADER.size:]))
                 self.buffer.clear()
-        return output
+                yield decoded
 
     def eof(self):
         if self.buffer:
