@@ -1679,6 +1679,26 @@ supplied credits still require room membership.
 
 ## Two-client playtest
 
+### Difficulty bindings
+
+The native `GameUtility.GetPvEDifficultyInfo` maps two wire-number families
+onto the same four UI slots. English resource keys `PvE_Difficulty00` through
+`PvE_Difficulty04` resolve to Easy, Normal, Hard, Extreme and Nightmare.
+
+| Wire family | Slot 0 | Slot 1 | Slot 2 | Slot 3 |
+| --- | --- | --- | --- | --- |
+| 1–4 | 1 Easy | 2 Normal | 3 Hard | 4 Extreme |
+| 11–14 | 11 Normal | 12 Hard | 13 Extreme | 14 Nightmare |
+
+The UI enum's values 0–3 are slot indices, not these wire difficulty values.
+An operator must configure the event links, required power and boss individual
+for the chosen family explicitly. Scenario filenames alone do not prove the
+difficulty: the installed raid scenarios share their progression structure and
+do not include a separately named Nightmare scenario. Confirm boss bindings
+through the prepared layout's enemy individuals and verify them in gameplay.
+
+### Test sequence
+
 Use two distinct accounts and record the time and the action on each device
 when a failure occurs. Server logs can diagnose transport failures; a client
 crash may also require device logs. Never publish bearer tokens or save files.
