@@ -94,6 +94,7 @@ class RoomService:
         self.lobby = LobbyService(rooms.snapshot)
         self.connections = {}
         self.admissions = set()
+        self.abandoned_battles = {}
 
     @staticmethod
     def _object(room, guid):
@@ -148,6 +149,26 @@ class RoomService:
                     and (account_id in room.get('Completions',{})
                          or account_id in room.get('PreviousBattle',{}).get('Completions',{}))):
                 self.leave(account_id,room_id)
+
+    def release_abandoned_member(self, account_id):
+        """Explicit new admission abandons a disconnected battle after grace.
+
+        Keep bounded frozen completion contexts per account; never evict an unresolved
+        context, settle an invented result, or remove an active peer's room.
+        """
+        active = self.registry.active_admissions()
+        with self.rooms.lock:
+            room_id = self.rooms.memberships.get(account_id)
+            room = self.rooms.rooms.get(room_id)
+            if (room is None or account_id not in room.get('PreparedBattle', {})
+                    or any((entry['UserId'], room_id) in active for entry in room['Players'])):
+                return
+            previous = self.abandoned_battles.get(account_id, [])
+            if len(previous) >= 8 or sum(map(len, self.abandoned_battles.values())) >= 128:
+                raise RoomError('Abandoned battle retention capacity reached.')
+            frozen = copy.deepcopy(room)
+            self.abandoned_battles.setdefault(account_id, []).append(frozen)
+            self.leave(account_id, room_id)
 
     def admitted(self, room, account_id):
         """Called on the listener loop after authoritative HTTP admission."""
@@ -231,6 +252,7 @@ class RoomService:
         self.expire_lobbies()
         with self.rooms.lock:
             self.release_returned_member(player['UserId'])
+            self.release_abandoned_member(player['UserId'])
             if player['UserId'] in self.rooms.memberships:
                 raise RoomError('Player already admitted.')
             candidates = self.discover(player['UserId'],episode_ids,version,route=2,
@@ -262,6 +284,7 @@ class RoomService:
                 raise RoomError('Guild room requires current membership.')
             settings = self.room_settings_provider(episode_id)
             self.release_returned_member(player['UserId'])
+            self.release_abandoned_member(player['UserId'])
             room,tcp,udp = self.create(player,episode_id,version,public_level == 2,
                                       public_level,settings['Mode'],settings['SuspendLimits'])
             current = self.rooms.rooms[room['RoomId']]
@@ -307,6 +330,7 @@ class RoomService:
         with self.rooms.lock:
             scope = self._event_scope(account_id,event_id,difficulty)
             self.release_returned_member(account_id)
+            self.release_abandoned_member(account_id)
             if account_id in self.rooms.memberships:
                 raise RoomError('Player already admitted.')
             candidates = self.discover(account_id,scope,version,route=2,
@@ -394,6 +418,15 @@ class RoomService:
                         previous_prepared['EpisodeToken'].encode('utf-8'),
                         request['EpisodeToken'].encode('utf-8')):
                     room,prepared = previous_room,previous_prepared
+            if (prepared is None or not secrets.compare_digest(
+                    prepared['EpisodeToken'].encode('utf-8'),request['EpisodeToken'].encode('utf-8'))):
+                for abandoned in self.abandoned_battles.get(account_id, []):
+                    abandoned_prepared = abandoned.get('PreparedBattle', {}).get(account_id)
+                    if abandoned_prepared is not None and secrets.compare_digest(
+                            abandoned_prepared['EpisodeToken'].encode('utf-8'),
+                            request['EpisodeToken'].encode('utf-8')):
+                        room, prepared = abandoned, abandoned_prepared
+                        break
             if (prepared is None or not secrets.compare_digest(
                     prepared['EpisodeToken'].encode('utf-8'),request['EpisodeToken'].encode('utf-8'))):
                 raise RoomError('Completion token does not belong to this account battle.')

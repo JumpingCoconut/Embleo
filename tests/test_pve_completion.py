@@ -134,6 +134,100 @@ class CompletionTests(unittest.TestCase):
         with self.assertRaises(RoomError):
             service.complete_http('alice',request | {'ResultHash':'changed'})
 
+    def test_abandoned_battle_requires_expired_grace_and_retains_completion(self):
+        now = [0]
+        registry = SessionRegistry(clock=lambda: now[0], session_timeout=10, reconnect=True)
+        rooms = Rooms(2)
+        provider = Mock(return_value={'Result': {}})
+        service = RoomService(rooms, registry, completion_provider=provider)
+        room, tcp, _ = service.create(player(), 'ep', 'v', False, 1, 1, (60, 3, 20))
+        session = registry.open(tcp)
+        registry.close(session.session_id)
+        original = rooms.rooms[room['RoomId']]
+        original.update(Status=1, PreparedBattle={'alice': dict(EpisodeToken='old', BattleId='battle')})
+        service.release_abandoned_member('alice')
+        self.assertEqual(rooms.memberships['alice'], room['RoomId'])
+        now[0] = 10
+        service.release_abandoned_member('alice')
+        self.assertNotIn('alice', rooms.memberships)
+        self.assertNotIn(room['RoomId'], rooms.rooms)
+        fresh = service.create(player(), 'ep', 'v', False, 1, 1, (60, 3, 20))[0]
+        fresh_live = rooms.rooms[fresh['RoomId']]
+        fresh_live.update(Status=1, PreparedBattle={'alice': dict(EpisodeToken='new', BattleId='next')})
+        # An old token can retire its original battle without touching the new one.
+        request = dict(EpisodeToken='old', Playlog='')
+        with self.assertRaises(RoomError):
+            service.complete_http('alice', request | {'ResultHash': native_result_hash('battle', True)})
+        provider.assert_not_called()
+        self.assertEqual(service.complete_http('alice', request, True), {'Result': {}})
+        self.assertEqual(service.complete_http('alice', request, True), {'Result': {}})
+        provider.assert_called_once()
+        self.assertEqual(provider.call_args[0][1]['PreparedBattle']['alice']['BattleId'], 'battle')
+        self.assertNotIn('Completions', fresh_live)
+        with self.assertRaises(RoomError):
+            service.complete_http('bob', request, True)
+
+    def test_abandonment_preserves_active_peers_and_repeated_frozen_contexts(self):
+        now = [0]
+        registry = SessionRegistry(clock=lambda: now[0], session_timeout=10, reconnect=True)
+        rooms = Rooms(2)
+        service = RoomService(rooms, registry)
+        room, tcp, _ = service.create(player(), 'ep', 'v', False, 1, 1, (60, 3, 20))
+        _, peer_tcp, _ = service.join(room['RoomId'], player('bob', 1, False), 'v')
+        registry.open(peer_tcp)
+        current = rooms.rooms[room['RoomId']]
+        current.update(Status=1, PreparedBattle={'alice': dict(EpisodeToken='old', BattleId='battle')})
+        now[0] = 120
+        # Issue a live peer credential after Alice's grace expired.
+        registry.issue('bob', room['RoomId'], 2)
+        service.release_abandoned_member('alice')
+        self.assertEqual(rooms.memberships['alice'], room['RoomId'])
+        registry.revoke('bob', room['RoomId'])
+        service.release_abandoned_member('alice')
+        fresh = service.create(player(), 'ep', 'v', False, 1, 1, (60, 3, 20))[0]
+        rooms.rooms[fresh['RoomId']].update(Status=1, PreparedBattle={'alice': dict(EpisodeToken='next', BattleId='next')})
+        now[0] = 240
+        service.release_abandoned_member('alice')
+        self.assertNotIn('alice', rooms.memberships)
+        self.assertEqual([entry['PreparedBattle']['alice']['EpisodeToken']
+                          for entry in service.abandoned_battles['alice']], ['old', 'next'])
+        service.completion_provider = Mock(return_value={'Result': {}})
+        for token in ('next', 'old', 'next', 'old'):
+            self.assertEqual(service.complete_http('alice', dict(EpisodeToken=token, Playlog=''), True),
+                             {'Result': {}})
+        self.assertEqual(service.completion_provider.call_count, 2)
+        # Both unresolved and completed contexts count toward the cap.
+        for index in range(6):
+            new = service.create(player(), 'ep', 'v', False, 1, 1, (60, 3, 20))[0]
+            rooms.rooms[new['RoomId']].update(Status=1,
+                PreparedBattle={'alice': dict(EpisodeToken='extra'+str(index), BattleId='extra'+str(index))})
+            now[0] += 120
+            service.release_abandoned_member('alice')
+        new = service.create(player(), 'ep', 'v', False, 1, 1, (60, 3, 20))[0]
+        rooms.rooms[new['RoomId']].update(Status=1,
+            PreparedBattle={'alice': dict(EpisodeToken='overflow', BattleId='overflow')})
+        now[0] += 120
+        with self.assertRaises(RoomError):
+            service.release_abandoned_member('alice')
+        self.assertEqual(rooms.memberships['alice'], new['RoomId'])
+        self.assertEqual(len(service.abandoned_battles['alice']), 8)
+
+    def test_global_abandonment_cap_preserves_original_membership(self):
+        now = [0]
+        registry = SessionRegistry(clock=lambda: now[0])
+        rooms = Rooms(1)
+        service = RoomService(rooms, registry)
+        room = service.create(player(), 'ep', 'v', False, 1, 1, (60, 3, 20))[0]
+        current = rooms.rooms[room['RoomId']]
+        current.update(Status=1, PreparedBattle={'alice': dict(EpisodeToken='token', BattleId='battle')})
+        service.abandoned_battles = {'other'+str(index): [{}] * 8 for index in range(16)}
+        now[0] = 120
+        with self.assertRaises(RoomError):
+            service.release_abandoned_member('alice')
+        self.assertEqual(rooms.memberships['alice'], room['RoomId'])
+        self.assertIs(rooms.rooms[room['RoomId']], current)
+        self.assertNotIn('alice', service.abandoned_battles)
+
     def test_retire_failure_and_bounded_contract_do_not_record_completion(self):
         rooms = Rooms(1)
         provider = Mock(side_effect=ValueError('Invalid playlog'))
