@@ -30,9 +30,9 @@ For example:
 '''
 
 manifest = False
-download = True
+download = False
 extract = False
-extract_sequences = False
+extract_sequences = True
 adapt_sequences = False
 adapt_master_data = False
 adapt_scenario = False
@@ -312,8 +312,7 @@ def setup(asset_server_link):
             extract_file(str(path))
 
     if extract_sequences:
-        # extract_all_SequenceSetting_files(DOWNLOAD_FOLDER / "characters", EXTRACT_FOLDER / "SequenceSetting")
-        pass
+        extract_all_SequenceSetting_files(DOWNLOAD_FOLDER / "characters", EXTRACT_FOLDER / "SequenceSetting")
 
     if adapt_sequences:
         pass
