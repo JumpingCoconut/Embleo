@@ -217,7 +217,7 @@ def object_action_request(body):
                                  max_map_len=16,max_array_len=32,max_str_len=512,max_bin_len=16)
     except (ValueError, msgpack.UnpackException):
         raise ProtocolError('Invalid object action payload.') from None
-    fields = (range(1,3) if command == 14 else range(1,9) if command == 4 else range(1,6) if command == 16
+    fields = ((1,100) if command == 14 else range(1,9) if command == 4 else range(1,6) if command == 16
               else range(1,5) if command == 6 else range(1,4))
     if (type(request) is not dict or 1 not in request
             or any(type(key) is not int or key not in fields for key in request)):
@@ -227,14 +227,14 @@ def object_action_request(body):
             or type(guid[1]) is not bytes or len(guid[1]) != 16 or guid[1] == bytes(16)):
         raise ProtocolError('Invalid object action GUID.')
     if command == 14:
-        if type(request.get(2,'')) is not str:
+        if type(request.get(100,'')) is not str:
             raise ProtocolError('Invalid object destruction recipient.')
     elif command == 16:
         if any(request.get(key) is not None and type(request[key]) is not dict for key in (2,3,4,5)):
             raise ProtocolError('Invalid reflection data.')
         damage = request.get(5) or {}
         if (any(type(key) is not int or key not in (1,2) for key in damage)
-                or type(damage.get(1,'')) is not str
+                or damage.get(1) is not None and type(damage[1]) is not str
                 or type(damage.get(2,0)) is not int or not -(2**31) <= damage.get(2,0) < 2**31):
             raise ProtocolError('Invalid damage credit or integer.')
         receiver = request.get(3) or {}

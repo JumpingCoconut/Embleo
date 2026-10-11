@@ -1,10 +1,11 @@
 ﻿import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 import msgpack
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
-from prizm_rooms import Rooms
+from prizm_rooms import Rooms,RoomError
 from prizm_room_service import RoomService
 from prizm_sessions import SessionRegistry, SessionError
 from prizm_connection import Connection
@@ -17,6 +18,34 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
+    def test_pending_actions_are_bounded_expire_and_only_flush_for_creator(self):
+        rooms = Rooms(4)
+        service = RoomService(rooms,SessionRegistry())
+        room = {'RoomId':'test','Players':[{'UserId':'alice'}],
+                'BattleRoster':{'alice':'pl001'},'PreparedBattle':{'alice':{'BattleId':'battle-1'}}}
+        rooms.rooms['test'] = room
+        guid = bytes(range(16))
+        request = {1:{1:guid}}
+        with patch('prizm_room_service.time.monotonic',return_value=10):
+            for _ in range(8): service._defer_action(room,'alice',guid,request)
+            with self.assertRaises(RoomError): service._defer_action(room,'alice',guid,request)
+        with patch('prizm_room_service.time.monotonic',return_value=16):
+            service._defer_action(room,'alice',guid,request)
+            self.assertEqual(len(room['PendingBattleActions']),1)
+            service._defer_action(room,'bob',guid,request)
+            with patch.object(service,'broadcast') as broadcast:
+                service._flush_actions(room,'alice',guid)
+                self.assertEqual(broadcast.call_count,1)
+            self.assertEqual(room['PendingBattleActions'],[])
+            service._defer_action(room,'alice',guid,request)
+            room['PreparedBattle'] = {'alice':{'BattleId':'battle-2'}}
+            with patch.object(service,'broadcast') as broadcast:
+                service._flush_actions(room,'alice',guid)
+                broadcast.assert_not_called()
+            self.assertEqual(room['PendingBattleActions'],[])
+            with self.assertRaises(RoomError):
+                service._defer_action(room,'alice',guid,{1:{1:guid},2:{1:'x'*65536}})
+
     def test_character_change_rebuilds_stats_and_preserves_membership(self):
         from prizm_rooms import RoomError
         class Profiles:
@@ -137,10 +166,18 @@ class RoomServiceTests(unittest.TestCase):
         self.assertEqual(len(rooms.rooms[room['RoomId']]['PlayerObjects']),1)
         enemy = {1:{1:bytes(range(1,17))},2:{},3:{4:1.0},4:'spawn'}
         enemy_wire = command_message(12,msgpack.packb(enemy))
+        early_action = command_message(4,msgpack.packb({1:enemy[1],2:{},3:{},4:{}}))
+        service(clients[0].session,2000,early_action,True)
+        self.assertEqual(clients[1].notifications(),[])
         with self.assertRaises(RoomError): service(clients[1].session,2000,enemy_wire,True)
         self.assertEqual(clients[0].receive(user_message(2000,enemy_wire)),[])
-        sid,body = read_user_message(FrameDecoder().feed(clients[1].notifications()[0])[0][1])
+        notifications = clients[1].notifications()
+        self.assertEqual(len(notifications),2)
+        sid,body = read_user_message(FrameDecoder().feed(notifications[0])[0][1])
         self.assertEqual((sid,read_command_message(body)[0]),(2000,13))
+        _,body = read_user_message(FrameDecoder().feed(notifications[1])[0][1])
+        self.assertEqual(read_command_message(body)[0],5)
+        with self.assertRaises(RoomError): service(clients[1].session,2000,early_action,True)
         self.assertEqual(clients[0].receive(user_message(2000,enemy_wire)),[])
         self.assertEqual(clients[1].notifications(),[])
         for altered in (enemy | {4:'unknown'},enemy | {100:'outsider'},enemy | {1:creation[1]}):
@@ -243,7 +280,7 @@ class RoomServiceTests(unittest.TestCase):
                 self.assertIn((creation[1][1],7),rooms.rooms[room['RoomId']]['ObjectBuffs'])
         self.assertEqual(rooms.rooms[room['RoomId']]['ObjectBuffs'],{})
         with self.assertRaises(RoomError): service(clients[1].session,2000,destroy,True)
-        target_destroy = command_message(14,msgpack.packb({1:creation[1],2:'bob'}))
+        target_destroy = command_message(14,msgpack.packb({1:creation[1],100:'bob'}))
         service(clients[0].session,2000,target_destroy,True)
         self.assertEqual(len(clients[1].notifications()),1)
         self.assertIn(creation[1][1],rooms.rooms[room['RoomId']]['PlayerObjects'])
@@ -255,6 +292,8 @@ class RoomServiceTests(unittest.TestCase):
         self.assertEqual(clients[0].receive(user_message(2000,destroy)),[])
         self.assertEqual(clients[1].notifications(),[])
         with self.assertRaises(RoomError): service(clients[0].session,2000,status_wire,False)
+        with self.assertRaises(RoomError):
+            service(clients[0].session,2000,command_message(4,msgpack.packb({1:creation[1]})),True)
         with self.assertRaises(RoomError): service(clients[0].session,2000,wire,True)
         confirm = rpc_request(26,45,msgpack.packb({}))
         response = service(clients[1].session,2000,confirm,True)[0][1]

@@ -3,6 +3,7 @@
 import copy
 import secrets
 import re
+import time
 import msgpack
 
 from prizm_lobby import (LobbyService, ready_notification, join_notification,
@@ -22,6 +23,51 @@ from prizm_battle import (BATTLE_SERVICE, load_status_request, load_status_notif
 
 
 class RoomService:
+    # Native clients can send an initial battle action before object creation.
+    # Defer it without fanout until the authenticated creator registers the GUID.
+    PENDING_ACTION_TTL = 5.0
+    PENDING_ACTION_ACCOUNT_LIMIT = 8
+    PENDING_ACTION_ROOM_LIMIT = 32
+    PENDING_ACTION_BYTE_LIMIT = 65536
+
+    @staticmethod
+    def _prepared_battle_id(room):
+        responses = room.get('PreparedBattle',{})
+        identities = {response.get('BattleId') for response in responses.values()}
+        if (len(identities) != 1 or any(type(identity) is not str or not identity
+                                      for identity in identities)):
+            raise RoomError('Pending actions require a prepared battle identity.')
+        return next(iter(identities))
+
+    def _pending_actions(self, room):
+        now = time.monotonic()
+        battle_id = self._prepared_battle_id(room)
+        pending = room.setdefault('PendingBattleActions',[])
+        pending[:] = [row for row in pending if now-row[0] < self.PENDING_ACTION_TTL
+                      and row[4] == battle_id]
+        return pending,now
+
+    def _defer_action(self, room, account, guid, request):
+        pending,now = self._pending_actions(room)
+        if (len(pending) >= self.PENDING_ACTION_ROOM_LIMIT
+                or sum(row[1] == account for row in pending) >= self.PENDING_ACTION_ACCOUNT_LIMIT
+                or sum(len(msgpack.packb(row[3],use_bin_type=True)) for row in pending)
+                   + len(msgpack.packb(request,use_bin_type=True)) > self.PENDING_ACTION_BYTE_LIMIT):
+            raise RoomError('Too many actions awaiting object creation.')
+        pending.append((now,account,guid,copy.deepcopy(request),self._prepared_battle_id(room)))
+
+    def _flush_actions(self, room, account, guid):
+        current = self.rooms.rooms[room['RoomId']]
+        pending,_ = self._pending_actions(current)
+        ready = [row for row in pending if row[1] == account and row[2] == guid]
+        pending[:] = [row for row in pending if row[2] != guid]
+        if (account not in {entry['UserId'] for entry in current['Players']}
+                or account not in current.get('BattleRoster',{account:None})):
+            return
+        for _,_,_,request,_ in ready:
+            self.broadcast(room,object_action_notification(4,request),exclude=account,
+                           service=BATTLE_SERVICE)
+
     def __init__(self, rooms, registry, guild_provider=None,
                  event_catalog=None, eligibility_provider=None, room_settings_provider=None,
                  room_view_provider=None, player_provider=None, connection_provider=None,
@@ -495,7 +541,7 @@ class RoomService:
                     retired = current.get('DestroyedObjects',{}).get(guid)
                     if 'PreparedBattle' not in room or (owner[0] if owner else retired) != account:
                         raise RoomError('Destruction sender does not own this object.')
-                    recipient = request.get(2,'') or None
+                    recipient = request.get(100,'') or None
                     if recipient is not None and recipient not in {entry['UserId'] for entry in room['Players']}:
                         raise RoomError('Destruction recipient is not a room member.')
                     if owner is None:
@@ -519,6 +565,10 @@ class RoomService:
                     current = self.rooms.rooms[room['RoomId']]
                     guid = request[1][1]
                     owner = self._object(current,guid)
+                    if (command == 4 and 'PreparedBattle' in room and owner is None
+                            and guid not in current.get('DestroyedObjects',{})):
+                        self._defer_action(current,session.admission.account_id,guid,request)
+                        return []
                     if 'PreparedBattle' not in room or owner is None or owner[0] != session.admission.account_id:
                         raise RoomError('Action sender does not own this object.')
                     if command == 16:
@@ -564,6 +614,7 @@ class RoomService:
                     if existing is None or recipient is not None:
                         self.broadcast(room,create_minion_notification(request),exclude=account,
                                        service=BATTLE_SERVICE,recipient=recipient)
+                    self._flush_actions(room,account,guid)
                 return []
             if command == 12:
                 request = create_enemy_request(body)
@@ -599,6 +650,7 @@ class RoomService:
                     if existing is None or recipient is not None:
                         self.broadcast(room,create_enemy_notification(request),exclude=account,
                                        service=BATTLE_SERVICE,recipient=recipient)
+                    self._flush_actions(room,account,guid)
                 return []
             if command == 10:
                 with self.rooms.lock:
@@ -639,6 +691,7 @@ class RoomService:
                     if existing is None or recipient is not None:
                         self.broadcast(room,create_player_notification(request),exclude=account,
                                        service=BATTLE_SERVICE,recipient=recipient)
+                    self._flush_actions(room,account,guid)
                     return [(BATTLE_SERVICE,rpc_response(10,request_id,create_player_reply(player)),True)]
             status = load_status_request(body,session.admission.account_id)
             with self.rooms.lock:

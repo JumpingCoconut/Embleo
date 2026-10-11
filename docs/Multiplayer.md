@@ -1614,3 +1614,10 @@ Status actions use keys `1, 2, 3, 10, 20, 30, 31` for GUID, type, sequence,
 double, integer and two booleans. A null or omitted player in player creation
 uses the authenticated server snapshot; supplied player data must still match
 that snapshot. Ownership, recipient membership and replay checks remain required.
+
+An initial battle action can precede its object-creation message in the same
+native TCP batch. RoomService holds only that command in a bounded, short-lived
+queue tied to the prepared battle. It relays creation first, then the creator's
+queued action after authorization; other senders' claims and stale actions are
+discarded. Damage reflection also permits a null damage-credit user ID, while
+supplied credits still require room membership.

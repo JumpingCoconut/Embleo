@@ -115,13 +115,17 @@ class BattleTests(unittest.TestCase):
             with self.assertRaises(ProtocolError):
                 object_liveness_request(command_message(command,msgpack.packb(request)),'bob')
     def test_destroy_object_native_translation(self):
-        request = {1:{1:bytes(range(16))},2:'bob'}
+        request = {1:{1:bytes(range(16))},100:'bob'}
         self.assertEqual(object_action_request(command_message(14,msgpack.packb(request))),(14,request))
         command,payload = read_command_message(object_action_notification(14,request))
         self.assertEqual(command,15)
         self.assertEqual(msgpack.unpackb(payload,strict_map_key=False),request)
         with self.assertRaises(ProtocolError):
-            object_action_request(command_message(14,msgpack.packb(request | {2:False})))
+            object_action_request(command_message(14,msgpack.packb(request | {100:False})))
+        with self.assertRaises(ProtocolError):
+            object_action_request(command_message(14,msgpack.packb(request | {2:'bob'})))
+        targeted = request | {100:'bob'}
+        self.assertEqual(object_action_request(command_message(14,msgpack.packb(targeted))),(14,targeted))
     def test_reflection_native_translation_and_damage_credit_types(self):
         request = {1:{1:bytes(range(16))},2:{1:{1:bytes(range(16))}},
                    3:{1:{1:bytes(range(1,17))},2:'part'},4:{},5:{1:'alice',2:100}}
@@ -131,8 +135,11 @@ class BattleTests(unittest.TestCase):
         self.assertEqual(msgpack.unpackb(payload,strict_map_key=False),request)
         empty = request | {2:{1:{}},3:{1:{1:None}}}
         self.assertEqual(object_action_request(command_message(16,msgpack.packb(empty))),(16,empty))
+        for damage in ({1:None,2:0},{2:0}):
+            native = request | {5:damage}
+            self.assertEqual(object_action_request(command_message(16,msgpack.packb(native))),(16,native))
         for altered in (request | {5:{1:'alice',2:True}},request | {5:{2:2**31}},
-                        request | {3:{1:{1:b'bad'}}},request | {4:[]}):
+                        request | {3:{1:{1:b'bad'}}},request | {4:[]},request | {5:{1:False,2:0}}):
             with self.assertRaises(ProtocolError):
                 object_action_request(command_message(16,msgpack.packb(altered)))
     def test_battle_action_native_translation_and_move_sequence(self):
