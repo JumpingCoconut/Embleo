@@ -2006,6 +2006,24 @@ def user_view(account_id, character_id=None):
 	character = next((c for c in characters if c["CharacterId"] == character_id), None)
 	if character is None:
 		raise AccountError("Unknown profile character.")
+	# A remote profile needs the owned records used by this character, rather
+	# than another player's inventory or invented level/default records.
+	equipment_slots = ("Costume", "WeaponMain", "WeaponSub", "AccessoryMain",
+		"AccessorySub", "CostumeSpell", "WeaponSpell", "VisualEquipment")
+	equipment_ids = {identifier for slot in equipment_slots
+		if isinstance(character.get(slot), (list, tuple))
+		for identifier in character[slot] if isinstance(identifier, str)}
+	food = character.get("Food")
+	food_ids = {identifier for identifier in food if isinstance(identifier, str)} \
+		if isinstance(food, (list, tuple)) else set()
+	owned_equipment = g.account_store.read(account_id, "UserEquipment.json")
+	owned_items = g.account_store.read(account_id, "UserItems.json")
+	equipment = [row for row in (owned_equipment if isinstance(owned_equipment, (list, tuple)) else ())
+		if isinstance(row, dict) and isinstance(row.get("EquipmentId"), str)
+		and row["EquipmentId"] in equipment_ids]
+	items = [row for row in (owned_items if isinstance(owned_items, (list, tuple)) else ())
+		if isinstance(row, dict) and isinstance(row.get("ItemId"), str)
+		and row["ItemId"] in food_ids]
 	revision = g.account_store.icon_revision(account_id)
 	is_online, last_login = g.account_store.presence(
 		account_id, int(time.time()), app.config["ONLINE_TIMEOUT_SECONDS"])
@@ -2015,7 +2033,7 @@ def user_view(account_id, character_id=None):
 	return {"UserId": user["id"], "Name": user["name"],
 		"CharacterId": character_id,
 		"UserCharacter": character,
-		"UserEquipment": [], "UserItem": [], "EmblemId": parameter.get("EmblemId", ""),
+		"UserEquipment": equipment, "UserItem": items, "EmblemId": parameter.get("EmblemId", ""),
 		"GuildName": social.guild_name(account_id), "Comment": parameter.get("Word", ""),
 		"IsLogin": account_id == g.account_id or is_online, "LastLoginAt": utc_date(last_login),
 		"TotalPower": 0, "MissionRank": parameter.get("MissionRank", 1), "EventScore": 0,

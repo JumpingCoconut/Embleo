@@ -404,6 +404,80 @@ class AccountTests(unittest.TestCase):
             self.unpack(self.post('/api/user/other-user-info', {'userIdInfo': [alice['id']]}, token))
         self.assertEqual(quiet.counts, {})
 
+    def test_other_user_profile_projects_only_selected_owned_loadout(self):
+        alice, _ = self.register()
+        bob, token = self.register('Bob')
+        slots = ('Costume', 'WeaponMain', 'WeaponSub', 'AccessoryMain',
+                 'AccessorySub', 'CostumeSpell', 'WeaponSpell', 'VisualEquipment')
+        equipment = [dict(EquipmentId='equipped-'+slot, Level=index+1, Unknown={'keep': index})
+                     for index,slot in enumerate(slots)]
+        store = AccountStore(self.db)
+        try:
+            character = dict(store.read(alice['id'], 'UserCharacter.json')[0],
+                             **{slot:['equipped-'+slot] for slot in slots}, Food=['food-owned', 'food-missing'])
+            character['WeaponSub'].append('equipment-missing')
+            other = dict(character, CharacterId='pl002', WeaponMain=['other-character'])
+            store.write(alice['id'], 'UserCharacter.json', [character, other])
+            store.write(alice['id'], 'UserEquipment.json', equipment +
+                        [dict(EquipmentId='other-character', Level=99), dict(EquipmentId='unused', Level=80)])
+            store.write(alice['id'], 'UserItems.json', [dict(ItemId='food-owned', Count=3, Extra='retained'),
+                                                       dict(ItemId='unused-food', Count=4)])
+            store.write(bob['id'], 'UserEquipment.json', [dict(EquipmentId='equipped-WeaponMain', Level=100)])
+            store.connection.commit()
+        finally:
+            store.close()
+        before_equipment = self.saved(alice, 'UserEquipment.json')
+        before_items = self.saved(alice, 'UserItems.json')
+        response = self.unpack(self.post('/api/user/other-user-info',
+            {'userIdInfo': [alice['id']+',pl001']}, token))['UserViews'][0]
+        self.assertEqual(response['UserId'], alice['id'])
+        self.assertEqual(response['UserEquipment'], equipment)
+        self.assertEqual(response['UserItem'], [dict(ItemId='food-owned', Count=3, Extra='retained')])
+        self.assertEqual(response['UserCharacter'], self.saved(alice, 'UserCharacter.json')[0])
+        self.assertEqual(self.saved(alice, 'UserEquipment.json'), before_equipment)
+        self.assertEqual(self.saved(alice, 'UserItems.json'), before_items)
+        self.assertEqual(self.saved(bob, 'UserEquipment.json')[0]['Level'], 100)
+
+    def test_remote_loadout_projection_skips_malformed_references_without_mutation(self):
+        alice, _ = self.register()
+        _, token = self.register('Bob')
+        equipment = [None, 1, 'row', {'EquipmentId': []}, {'EquipmentId': 42},
+                     {'EquipmentId': 'valid', 'Unknown': {'retained': True}},
+                     {'EquipmentId': 's', 'Level': 99}]
+        items = [None, [], {'ItemId': []}, {'ItemId': 'food', 'Count': 3}]
+        store = AccountStore(self.db)
+        try:
+            character = store.read(alice['id'], 'UserCharacter.json')[0]
+            character.update(Costume='scalar', WeaponMain=['valid', None, []],
+                             WeaponSub=42, VisualEquipment=None, Food={'invalid': 'food'})
+            store.write(alice['id'], 'UserCharacter.json', [character])
+            store.write(alice['id'], 'UserEquipment.json', equipment)
+            store.write(alice['id'], 'UserItems.json', items)
+            store.connection.commit()
+        finally:
+            store.close()
+        view = self.unpack(self.post('/api/user/other-user-info',
+            {'userIdInfo': [alice['id']+',pl001']}, token))['UserViews'][0]
+        self.assertEqual(view['UserEquipment'], [{'EquipmentId': 'valid', 'Unknown': {'retained': True}}])
+        self.assertEqual(view['UserItem'], [])
+        self.assertEqual(view['UserCharacter'], character)
+        self.assertEqual(self.saved(alice, 'UserEquipment.json'), equipment)
+        self.assertEqual(self.saved(alice, 'UserItems.json'), items)
+        for outer in (None, 42, 'scalar'):
+            store = AccountStore(self.db)
+            try:
+                store.write(alice['id'], 'UserEquipment.json', outer)
+                store.write(alice['id'], 'UserItems.json', outer)
+                store.connection.commit()
+            finally:
+                store.close()
+            view = self.unpack(self.post('/api/user/other-user-info',
+                {'userIdInfo': [alice['id']+',pl001']}, token))['UserViews'][0]
+            self.assertEqual(view['UserEquipment'], [])
+            self.assertEqual(view['UserItem'], [])
+            self.assertEqual(self.saved(alice, 'UserEquipment.json'), outer)
+            self.assertEqual(self.saved(alice, 'UserItems.json'), outer)
+
     def test_portrait_is_png_and_is_still_available_after_restart(self):
         alice, token = self.register()
         bob, bob_token = self.register("Bob")
