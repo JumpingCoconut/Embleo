@@ -40,6 +40,44 @@ class EventTests(unittest.TestCase):
         self.assertEqual(matched['RoomId'],new['RoomId'])
         self.assertEqual(service.rooms.rooms[old['RoomId']]['EventId'],'old')
 
+    def test_native_default_difficulty_discovers_eligible_event_tiers_only(self):
+        from prizm_room_service import RoomService
+        from prizm_rooms import Rooms
+        from prizm_sessions import SessionRegistry
+        from test_prizm_lobby import player
+        start = datetime(2026,1,1,tzinfo=timezone.utc)
+        now = [start]
+        links = [dict(self.link(), EpisodePveEventId='tier'+str(tier), Difficulty=tier,
+                      RequiredPower=power) for tier,power in ((1,0),(2,100),(3,500))]
+        catalog = ScheduledCatalog(EpisodeCatalog(links, {'episode'}), [dict(EventId='event',
+            PublishStartAt=start, StartAt=start, EndAt=start+timedelta(hours=1))], lambda:now[0])
+        service = RoomService(Rooms(4),SessionRegistry(),event_catalog=catalog,
+            eligibility_provider=lambda account:dict(Power=100 if account.startswith('viewer') else 500,
+                Platform='android',ClientVersion='1.6.0'),
+            room_settings_provider=lambda episode:dict(Mode=1,SuspendLimits=(60,3,20)),
+            room_view_provider=lambda account,room:room)
+        public = [service.create_event(player('host'+str(tier)), 'tier'+str(tier), 'v', 1)[0]
+                  for tier in (1,2,3)]
+        service.create_event(player('private'), 'tier1', 'v', 2)
+        service.guild_provider = lambda account:'guild' if account == 'guildhost' else None
+        service.create_event(player('guildhost'), 'tier1', 'v', 3)
+        self.assertEqual([room['Difficulty'] for room in service.discover_event('viewer','event',0,'v')], [1,2])
+        self.assertEqual([room['Difficulty'] for room in service.discover_event('viewer','event',2,'v')], [2])
+        self.assertEqual(service.discover_event('viewer','other',0,'v'), [])
+        self.assertEqual(service.discover_event('viewer','event',0,'wrong'), [])
+        admitted = service.match_event(player('viewer-join'),'v','event',0)[0]
+        self.assertEqual(admitted['RoomId'],public[0]['RoomId'])
+        now[0] = start+timedelta(hours=1)
+        self.assertEqual(service.discover_event('viewer','event',0,'v'), [])
+        # Native discovery zero remains event-wide even with a literal zero tier.
+        # The catalog itself still supports concrete zero-tier eligibility.
+        catalog.episodes.links[0]['Difficulty'] = 0
+        now[0] = start
+        scope,context = service._discovery_scope('viewer','event',0)
+        self.assertEqual(context,('event',None))
+        self.assertEqual(scope,('episode',))
+        self.assertEqual(catalog.episode_scope('event',0,100,'android','1.6.0'),('episode',))
+
     def link(self):
         return dict(EpisodePveEventId='link',EventId='event',EpisodeId='episode',
                     RequiredPower=100,Difficulty=2,MinVerIOS='1.6.0',MinVerAndroid='1.5.0')

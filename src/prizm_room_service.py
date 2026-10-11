@@ -266,7 +266,8 @@ class RoomService:
     @staticmethod
     def _event_matches(room, context):
         return (context is None or 'EventId' not in room
-                or (room['EventId'],room['Difficulty']) == context)
+                or (room['EventId'] == context[0]
+                    and (context[1] is None or room['Difficulty'] == context[1])))
 
     def match_checked(self, player, version, episode_ids, event_context=None):
         """Select and admit without releasing the room lock between them.
@@ -292,6 +293,18 @@ class RoomService:
         eligibility = self.eligibility_provider(account_id)
         return self.event_catalog.episode_scope(event_id,difficulty,
             eligibility['Power'],eligibility['Platform'],eligibility['ClientVersion'])
+
+    def _discovery_scope(self, account_id, event_id, difficulty):
+        # Native room-list/matching constructors leave Difficulty at zero.
+        # Discover all eligible tiers in this event; the native list UI filters
+        # Room.Difficulty itself. Creation stays bound to its selected link.
+        links = self.event_catalog.episodes.links if self.event_catalog is not None else ()
+        tiers = {row['Difficulty'] for row in links if row['EventId'] == event_id}
+        if type(difficulty) is int and difficulty == 0:
+            scope = tuple(dict.fromkeys(episode for tier in sorted(tiers)
+                for episode in self._event_scope(account_id, event_id, tier)))
+            return scope, (event_id, None)
+        return self._event_scope(account_id, event_id, difficulty), (event_id, difficulty)
 
     def create_event(self, player, episode_id, version, public_level):
         if (self.event_catalog is None or self.eligibility_provider is None
@@ -353,20 +366,20 @@ class RoomService:
                 or self.room_view_provider is None):
             raise RoomError('HTTP matching is not configured.')
         with self.rooms.lock:
-            scope = self._event_scope(account_id,event_id,difficulty)
+            scope,context = self._discovery_scope(account_id,event_id,difficulty)
             self.release_returned_member(account_id)
             self.release_abandoned_member(account_id)
             if account_id in self.rooms.memberships:
                 raise RoomError('Player already admitted.')
             candidates = self.discover(account_id,scope,version,route=2,
-                                       event_context=(event_id,difficulty))
+                                       event_context=context)
             response = dict(Rooms=[],Prizm=None,RetryRequest=True,RetryCount=3,RetryInterval=1000)
             if not candidates:
                 return response
             player = self.player_provider(account_id)
             if player.get('UserId') != account_id:
                 raise RoomError('Player provider returned a different account.')
-            room,tcp,udp = self.match_checked(player,version,scope,(event_id,difficulty))
+            room,tcp,udp = self.match_checked(player,version,scope,context)
             try:
                 view = self.room_view_provider(account_id,copy.deepcopy(room))
             except Exception:
@@ -393,8 +406,8 @@ class RoomService:
 
     def match_event(self, player, version, event_id, difficulty):
         with self.rooms.lock:
-            scope = self._event_scope(player['UserId'],event_id,difficulty)
-            return self.match_checked(player,version,scope,(event_id,difficulty))
+            scope,context = self._discovery_scope(player['UserId'],event_id,difficulty)
+            return self.match_checked(player,version,scope,context)
 
     def join_event(self, room_id, player, version, route, event_id, difficulty):
         with self.rooms.lock:
@@ -488,8 +501,8 @@ class RoomService:
         if self.room_view_provider is None:
             raise RoomError('HTTP room views are not configured.')
         with self.rooms.lock:
-            scope = self._event_scope(account_id,event_id,difficulty)
-            rooms = self.discover(account_id,scope,version,event_context=(event_id,difficulty))
+            scope,context = self._discovery_scope(account_id,event_id,difficulty)
+            rooms = self.discover(account_id,scope,version,event_context=context)
             return [self.room_view_provider(account_id,room) for room in rooms]
 
     def info_event(self, account_id, event_id, room_id, version):
