@@ -9,7 +9,7 @@ import asyncio
 import concurrent.futures
 import copy
 import threading
-from prizm_diagnostics import Diagnostics
+from prizm_diagnostics import Diagnostics, rejection_reason
 
 
 class RoomControl:
@@ -59,7 +59,8 @@ class RoomControl:
                 result = getattr(self.service,operation)(*args,**kwargs)
             except Exception as error:
                 self.diagnostics.record('request_rejected' if isinstance(error, ValueError)
-                                        else 'request_failed', operation)
+                                        else 'request_failed', operation + '_reason_' + rejection_reason(error)
+                                        if isinstance(error, ValueError) else operation)
                 future.set_exception(error)
             else:
                 future.set_result(result)

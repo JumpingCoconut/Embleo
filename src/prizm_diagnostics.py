@@ -32,6 +32,11 @@ class Diagnostics:
 # SHA256 prefixes of source-defined rejection literals. Unknown exception text
 # is never logged, even hashed. Map these codes to source literals offline.
 _REJECTION_CODES = frozenset({
+    '18adcd7883f68887',
+    '09bddc5ae402f8e7',
+    '2766fb2ea5d6dcf7',
+    '70623c658bfff065',
+    'd2e84bb0bd52521b',
     '02b3db867b345885',
     '03d59fa20a5d9b75',
     '03e2d8fbebfa1d4d',

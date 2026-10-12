@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
-from prizm_diagnostics import Diagnostics
+from prizm_diagnostics import Diagnostics, rejection_reason
 from prizm_control import RoomControl
 from prizm_listener import Listener
 from prizm_protocol import ProtocolError
@@ -13,6 +13,17 @@ from prizm_sessions import SessionRegistry
 
 
 class DiagnosticsTests(unittest.TestCase):
+    def test_new_battle_action_reasons_are_distinct_and_private_text_is_unknown(self):
+        reasons = ('Battle action requires a prepared battle.',
+                   'Battle action targets a destroyed object.',
+                   'Battle action sender does not own this minion.',
+                   'Battle action sender does not own this object.',
+                   'Host is already admitted to this room.')
+        codes = {rejection_reason(ValueError(reason)) for reason in reasons}
+        self.assertEqual(len(codes),len(reasons))
+        self.assertNotIn('unknown',codes)
+        self.assertEqual(rejection_reason(ValueError('private-token-user-save')),'unknown')
+
     def test_rate_limit_retains_counts_and_bounds_cardinality(self):
         diagnostics = Diagnostics('test')
         with patch('prizm_diagnostics.time.monotonic',side_effect=[0,1,30]):
