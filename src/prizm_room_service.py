@@ -8,7 +8,7 @@ import msgpack
 
 from prizm_lobby import (LobbyService, player_payload, ready_notification, join_notification,
                          leave_notification, in_game_start_notification, character_change_notification)
-from prizm_protocol import read_command_message, ProtocolError, rpc_response
+from prizm_protocol import read_command_message, read_rpc_request, ProtocolError, rpc_response
 from prizm_discovery import room_access
 from prizm_rooms import RoomError
 from prizm_battle import (BATTLE_SERVICE, load_status_request, load_status_notification,back_home_request,
@@ -937,6 +937,38 @@ class RoomService:
                                service=BATTLE_SERVICE)
             return []
         command, payload = read_command_message(body)
+        if command == 17:
+            # RoomServiceBase.HostCommand uses RPC 17. Native loading timeout
+            # calls Type=1 (Kick), StrValue=the stalled player's user ID.
+            if service != 1000 or not reliable:
+                raise ProtocolError('Invalid host command transport.')
+            _, request_id, payload = read_rpc_request(body)
+            try:
+                request = msgpack.unpackb(payload,raw=False,strict_map_key=False,
+                    max_map_len=3,max_array_len=0,max_str_len=128,max_bin_len=0)
+                if (type(request) is not dict
+                        or any(type(key) is not int or key not in (1,2,3) for key in request)
+                        or type(request.get(1)) is not int or request[1] != 1
+                        or type(request.get(2,0)) is not int or request.get(2,0) != 0
+                        or type(request.get(3)) is not str or not request[3]):
+                    raise ValueError('Invalid host command.')
+                with self.rooms.lock:
+                    room = self.rooms.snapshot(session,17,False)
+                    account,target = session.admission.account_id,request[3]
+                    host = next(player['UserId'] for player in room['Players'] if player['IsHost'])
+                    if account != host or target == account:
+                        raise ValueError('Unauthorized host command.')
+                    member = any(player['UserId'] == target for player in room['Players'])
+                    if not member and target not in room.get('BattleRoster',{}):
+                        raise ValueError('Unavailable host command target.')
+                    if member:
+                        # Existing departure revokes this room's credentials and
+                        # notifies survivors, removing the native load-status wait.
+                        self.leave(target,room['RoomId'])
+                reply = msgpack.packb({},use_bin_type=True)
+                return [(service,rpc_response(17,request_id,reply),True)]
+            except (ValueError,RoomError,msgpack.UnpackException):
+                return [(service,rpc_response(17,request_id,b'Invalid or unavailable host command.',status=2),True)]
         if command == 11:
             if service != 1000 or not reliable:
                 raise ProtocolError('Invalid room reset transport.')

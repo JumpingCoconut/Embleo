@@ -18,6 +18,40 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
+    def test_native_host_timeout_kick_releases_stalled_member_and_notifies_survivors(self):
+        rooms,registry = Rooms(3),SessionRegistry(reconnect=True)
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        host = Connection(registry,service)
+        host.receive(hello_request(tcp))
+        _,tcp,_ = service.join(room['RoomId'],player('bob'),'v')
+        guest = Connection(registry,service)
+        guest.receive(hello_request(tcp))
+        current = rooms.rooms[room['RoomId']]
+        current.update(PreparedBattle={'alice':{'BattleId':'host'},'bob':{'BattleId':'guest'}},
+                       BattleRoster={'alice':'pl001','bob':'pl001'},LoadStatuses={'alice':2,'bob':0})
+        host.notifications()
+        request = rpc_request(17,9,msgpack.packb({1:1,3:'alice'}))
+        reply = service(guest.session,1000,request,True)[0][1]
+        self.assertEqual(read_rpc_response(reply)[:3],(17,2,9))
+        self.assertEqual(len(current['Players']),2)
+        request = rpc_request(17,10,msgpack.packb({1:1,3:'bob'}))
+        guest.close()  # Download cancellation/socket loss retains reconnect credentials.
+        reply = service(host.session,1000,request,True)[0][1]
+        self.assertEqual(read_rpc_response(reply)[:3],(17,1,10))
+        self.assertNotIn('bob',rooms.memberships)
+        self.assertEqual(rooms.memberships['alice'],room['RoomId'])
+        self.assertEqual(set(current['PreparedBattle']),{'alice','bob'})
+        with self.assertRaises(SessionError): registry.open(tcp)
+        _,body = read_user_message(FrameDecoder().feed(host.notifications()[0])[0][1])
+        command,payload = read_command_message(body)
+        self.assertEqual((command,msgpack.unpackb(payload,raw=False,strict_map_key=False)[1]),(4,'bob'))
+        # A retried timeout acknowledges the same frozen roster, never another room.
+        other,_,_ = service.create(player('bob'),'ep','v',False,1,1,(60,3,20))
+        reply = service(host.session,1000,request,True)[0][1]
+        self.assertEqual(read_rpc_response(reply)[:3],(17,1,10))
+        self.assertEqual(rooms.memberships['bob'],other['RoomId'])
+
     def test_checked_join_recovers_stuck_membership_only_after_destination_checks(self):
         rooms,registry = Rooms(2),SessionRegistry(reconnect=True)
         service = RoomService(rooms,registry)

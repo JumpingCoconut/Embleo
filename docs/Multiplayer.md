@@ -684,8 +684,13 @@ raid-specific metadata source and authoritative member-stat builder.
 After preparation, reliable battle service 2000 command 18 validates the sender
 and relays command 19 load-status notifications only to current room members.
 The service records the latest status without assuming that a numeric value
-means every player can begin combat. Minion creation, combat relay,
-start synchronization and completion/rewards remain unimplemented.
+means every player can begin combat. Native loading timeout uses room-service
+RPC 17, HostCommand Type 1, to remove a stalled member. Only the current host
+may remove another member of that room. Departure revokes the removed player's
+credentials and notifies survivors so their load-status wait can progress.
+Retries for an already departed frozen battle participant acknowledge without
+touching that account's newer room. Regression coverage is in
+`tests/test_prizm_room_service.py`.
 
 Configured POST `/api/pve/start` retrieves the authenticated member's prepared
 response after checking EpisodeId, CharacterId and the paired roster arrays.
