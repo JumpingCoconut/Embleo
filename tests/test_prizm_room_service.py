@@ -164,8 +164,9 @@ class RoomServiceTests(unittest.TestCase):
         current = rooms.rooms[room['RoomId']]
         body = command_message(11,msgpack.packb({}))
         with self.assertRaises(RoomError): service(connection.session,1000,body,True)
+        report = {1:1,2:[{1:'alice',2:100}],3:'',4:0}
         current.update(Status=1,PreparedBattle={'alice':{'EpisodeToken':'token'}},
-                       GameOver={1:1},Completions={'alice':('identity',{})})
+                       GameOver=report,Completions={'alice':('identity',{})})
         guid = bytes(range(16))
         current['PlayerObjects'] = {guid:('alice',{})}
         for invalid in ([],{1:1},None):
@@ -189,6 +190,17 @@ class RoomServiceTests(unittest.TestCase):
         with self.assertRaises(RoomError):
             service(connection.session,2000,heartbeat,True)
         current['PreviousBattle']['PlayerObjects'][guid] = ('alice',{})
+        finish = rpc_request(0,81,msgpack.packb(report))
+        with patch.object(service,'broadcast') as broadcast:
+            replies = connection.receive(user_message(2000,finish))
+            broadcast.assert_not_called()
+        self.assertEqual(len(replies),1)
+        self.assertFalse(connection.closed)
+        confirm = rpc_request(26,82,msgpack.packb({}))
+        response = service(connection.session,2000,confirm,True)[0][1]
+        self.assertEqual(msgpack.unpackb(read_rpc_response(response)[3],strict_map_key=False),{1:1,2:report})
+        with self.assertRaises(RoomError):
+            service(connection.session,2000,rpc_request(0,83,msgpack.packb(report | {1:0})),True)
         import copy
         before = copy.deepcopy(current)
         self.assertEqual(service(connection.session,1000,body,True),[])

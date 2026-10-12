@@ -574,9 +574,19 @@ class RoomService:
                 _,request_id,report = game_over_request(body)
                 with self.rooms.lock:
                     room = self.rooms.snapshot(session,command,False)
-                    if 'PreparedBattle' not in room:
-                        raise RoomError('Battle has not been prepared.')
                     current = self.rooms.rooms[room['RoomId']]
+                    if 'PreparedBattle' not in room:
+                        previous = current.get('PreviousBattle',{})
+                        account = session.admission.account_id
+                        if (current['Status'] != 0 or account not in previous.get('Completions',{})
+                                or account not in previous.get('PreparedBattle',{})
+                                or 'GameOver' not in previous
+                                or command == 0 and report != previous['GameOver']):
+                            raise RoomError('Battle has not been prepared.')
+                        # Reset may race an RPC retry of the settled result.
+                        # Acknowledge the retained exact result without fanout.
+                        current = previous
+                        room = previous
                     if command == 26:
                         reply = game_over_confirm_reply(current.get('GameOver'))
                     else:
