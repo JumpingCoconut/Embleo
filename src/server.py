@@ -157,6 +157,14 @@ def account_error_response(message, status=400):
 def handle_account_error(error):
 	if request.path == "/api/user/other-user-info" and app.config.get("PVE_HTTP") is not None:
 		pve_profile_diagnostics.record("lookup_rejected", "other_user_info")
+	if request.path == "/api/user/character-update":
+		# Fixed labels only: never log loadouts, account identifiers or request data.
+		reason = {
+			"Invalid character update.": "character_update_shape",
+			"Unknown character.": "character_update_unknown",
+			"Invalid character loadout.": "character_update_loadout",
+		}.get(str(error), "character_update_other")
+		pve_profile_diagnostics.record("request_rejected", reason)
 	return account_error_response(str(error))
 
 
@@ -1739,7 +1747,10 @@ def api_user_character_update():
 
 	character_update_response_json = load_json("./offline_responses/api/user/character-update.json")
 
-	updates = request_decrypted_data.get("userCharacter")
+	updates = request_decrypted_data.get("UserCharacter", request_decrypted_data.get("userCharacter"))
+	if "UserCharacter" in request_decrypted_data and "userCharacter" in request_decrypted_data:
+		if request_decrypted_data["UserCharacter"] != request_decrypted_data["userCharacter"]:
+			raise AccountError("Invalid character update.")
 	characters = load_json("./data/user/UserCharacter.json")
 	if not isinstance(updates, list):
 		raise AccountError("Invalid character update.")

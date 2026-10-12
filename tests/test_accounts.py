@@ -313,6 +313,20 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(result["UserCharacter"][0]["VisualEquipment"], ["new"])
         self.assertEqual(self.saved(user, "UserCharacter.json")[0]["Level"], 1)
 
+    def test_character_update_accepts_native_pascal_case_envelope(self):
+        user, token = self.register()
+        result = self.unpack(self.post("/api/user/character-update", {"UserCharacter": [
+            {"CharacterId": "pl001", "WeaponMain": ["owned-spear"],
+             "Level": 999}]}, token))
+        self.assertEqual(result["UserCharacter"][0]["WeaponMain"], ["owned-spear"])
+        self.assertEqual(self.saved(user, "UserCharacter.json")[0]["Level"], 1)
+        before = self.saved(user, "UserCharacter.json")
+        response = self.post("/api/user/character-update", {
+            "UserCharacter": [{"CharacterId": "pl001", "WeaponMain": ["other"]}],
+            "userCharacter": []}, token)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.saved(user, "UserCharacter.json"), before)
+
     def test_checkpoints_are_isolated_and_reset_only_own_save(self):
         alice, token = self.register()
         bob, bob_token = self.register("Bob")
