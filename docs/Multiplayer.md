@@ -507,6 +507,11 @@ result. This limit remains a recovery limitation for repeated unfinished battles
 Checked joins validate destination availability, access and capacity before
 releasing membership. A guest retry to the same open room replaces its admission;
 a host joining its own room is rejected without destroying that room.
+Discovery excludes the viewer's existing room and hides a lobby whose host's
+transport has disconnected. Checked joins also reject that disconnected host
+until reconnection or expiry/handover. This hides ghost listings while retaining
+the existing reconnect window and frozen battle results. A successful host
+reconnection makes the open room discoverable again.
 
 From the repository root:
 

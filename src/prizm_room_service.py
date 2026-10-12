@@ -94,6 +94,7 @@ class RoomService:
         self.lobby = LobbyService(rooms.snapshot)
         self.connections = {}
         self.admissions = set()
+        self.disconnected_admissions = set()
         self.abandoned_battles = {}
         self.abandoned_replay_deadlines = {}
 
@@ -108,9 +109,15 @@ class RoomService:
         self.connections[connection.session.session_id] = connection
         admission = connection.session.admission
         self.admissions.add((admission.account_id, admission.room_id))
+        self.disconnected_admissions.discard((admission.account_id, admission.room_id))
 
     def disconnected(self, connection):
         self.connections.pop(connection.session.session_id,None)
+        admission = connection.session.admission
+        if (self.rooms.memberships.get(admission.account_id) == admission.room_id
+                and not any((peer.session.admission.account_id,peer.session.admission.room_id)
+                   == (admission.account_id,admission.room_id) for peer in self.connections.values())):
+            self.disconnected_admissions.add((admission.account_id,admission.room_id))
 
     def expire_lobbies(self):
         """Release abandoned lobbies after their actual reconnect window ends.
@@ -123,6 +130,7 @@ class RoomService:
             for account_id, room_id in list(self.admissions):
                 if self.rooms.memberships.get(account_id) != room_id:
                     self.admissions.discard((account_id, room_id))
+                    self.disconnected_admissions.discard((account_id, room_id))
                     continue
                 room = self.rooms.rooms[room_id]
                 open_lobby = 'PreparedBattle' not in room and room['Status'] == 0
@@ -240,6 +248,8 @@ class RoomService:
                 raise RoomError('Unknown room.')
             if target['PveVersion'] != version or target['Status'] != 0 or 'PreparedBattle' in target:
                 raise RoomError('Incompatible or unavailable room.')
+            if not self._joinable_host(target):
+                raise RoomError('Incompatible or unavailable room.')
             if not allowed(target):
                 raise RoomError('Room admission denied.')
             account = player['UserId']
@@ -285,7 +295,13 @@ class RoomService:
             raise ValueError('Invalid room discovery scope.')
         return self.rooms.discover(version,
             lambda room: self._event_matches(room,event_context)
+                and self._joinable_host(room,account_id)
                 and self._access(room,account_id,route,episode_ids),matching=route == 2)
+
+    def _joinable_host(self, room, viewer=None):
+        host = next(entry for entry in room['Players'] if entry['IsHost'])
+        return ((host['UserId'],room['RoomId']) not in self.disconnected_admissions
+                and (viewer is None or all(entry['UserId'] != viewer for entry in room['Players'])))
 
     @staticmethod
     def _event_matches(room, context):
@@ -562,6 +578,7 @@ class RoomService:
         """Explicit departure, not socket loss (which may permit reconnect)."""
         room = self.rooms.leave(account_id,room_id)
         self.admissions.discard((account_id, room_id))
+        self.disconnected_admissions.discard((account_id, room_id))
         self.registry.revoke(account_id,room_id)
         for connection in list(self.connections.values()):
             admission = connection.session.admission

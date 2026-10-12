@@ -83,3 +83,4 @@ class Runtime:
                 self.rooms.rooms.clear()
                 self.rooms.search_ids.clear()
                 self.service.admissions.clear()
+                self.service.disconnected_admissions.clear()

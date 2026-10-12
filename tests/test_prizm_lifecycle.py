@@ -16,6 +16,21 @@ from test_prizm_lobby import player
 
 
 class LobbyExpiryTests(unittest.TestCase):
+    def test_disconnected_host_lobby_is_hidden_until_reconnect_and_own_room_is_excluded(self):
+        room,tcp,_ = self.create()
+        host = self.connect(tcp)
+        self.assertEqual(self.service.discover('alice',['ep'],'v'),[])
+        self.assertEqual(len(self.service.discover('bob',['ep'],'v')),1)
+        host.close()
+        self.assertEqual(self.service.discover('bob',['ep'],'v'),[])
+        with self.assertRaises(RoomError):
+            self.service.join_checked(room['RoomId'],player('bob'),'v',3,['ep'])
+        self.assertEqual(self.rooms.memberships['alice'],room['RoomId'])
+        self.connect(tcp)
+        self.assertEqual(len(self.service.discover('bob',['ep'],'v')),1)
+        self.service.leave('alice',room['RoomId'])
+        self.assertEqual(self.service.disconnected_admissions,set())
+
     def setUp(self):
         self.now = 0
         self.registry = SessionRegistry(clock=lambda: self.now,
