@@ -18,6 +18,36 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
+    def test_settled_peer_liveness_confirmation_cannot_affect_next_battle(self):
+        import copy
+        rooms,registry = Rooms(4),SessionRegistry()
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        host = Connection(registry,service)
+        host.receive(hello_request(tcp))
+        _,tcp,_ = service.join(room['RoomId'],player('bob'),'v')
+        peer = Connection(registry,service)
+        peer.receive(hello_request(tcp))
+        current = rooms.rooms[room['RoomId']]
+        old,new = b'o'*16,b'n'*16
+        current.update(PreviousBattle={'PreparedBattle':{'alice':{},'bob':{}},
+            'Completions':{'bob':('settled',{})},'EnemyObjects':{old:('alice',{})}})
+        for prepared in (False,True):
+            if prepared:
+                current.update(PreparedBattle={'alice':{},'bob':{}},Status=1,
+                               EnemyObjects={new:('alice',{})})
+            before = copy.deepcopy(current)
+            with patch.object(service,'broadcast') as broadcast:
+                for guid in (old,b'x'*16):
+                    body = command_message(24,msgpack.packb({1:'bob',2:'alice',3:{1:guid},4:False}))
+                    self.assertEqual(service(peer.session,2000,body,True),[])
+                broadcast.assert_not_called()
+            self.assertEqual(current,before)
+        current['PreviousBattle']['EnemyObjects'][old] = ('bob',{})
+        with self.assertRaises(RoomError):
+            service(peer.session,2000,command_message(24,msgpack.packb(
+                {1:'bob',2:'alice',3:{1:old},4:False})),True)
+
     def test_old_cleanup_after_next_preparation_leaves_new_objects_unchanged(self):
         import copy
         rooms,registry = Rooms(4),SessionRegistry()
@@ -271,6 +301,9 @@ class RoomServiceTests(unittest.TestCase):
                        Completions={'alice':('identity',{}),'bob':('identity',{})})
         reset = command_message(11,msgpack.packb({}))
         service(host.session,1000,reset,True)
+        # The guest can send Reset without a preceding BackHome notification.
+        self.assertEqual(service(peer.session,1000,reset,True),[])
+        self.assertEqual(current['BackHomeUsers'],{'alice','bob'})
         returned = command_message(35,msgpack.packb({1:'bob'}))
         service(peer.session,2000,returned,True)
         self.assertEqual(current['BackHomeUsers'],{'alice','bob'})

@@ -488,6 +488,23 @@ mapping rather than indiscriminate echo.
 
 ### Verification
 
+Retry recovery is implemented in `prizm_room_service.py`. A settled guest may
+send room Reset after the host has reopened the lobby, without first sending
+BackHome. Liveness confirmations for absent previous-battle objects are ignored
+only for a settled previous participant addressing a previous battle member;
+known previous ownership must agree with the recipient. These confirmations do
+not broadcast or modify a newly prepared battle. Current registered objects
+retain their normal ownership checks.
+
+An authenticated create or matching request deliberately releases the requesting
+account's existing membership and revokes its old transport credentials. Other
+members retain their room and sessions. Prepared battle completion contexts are
+frozen before departure, so late result requests remain scoped to their original
+battle. Passive cleanup still respects reconnect grace. Retention remains bounded
+to eight contexts per account and 128 total; unresolved contexts are protected,
+and reaching that limit rejects departure rather than discarding an unsettled
+result. This limit remains a recovery limitation for repeated unfinished battles.
+
 From the repository root:
 
 ```powershell

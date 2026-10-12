@@ -176,6 +176,40 @@ class CompletionTests(unittest.TestCase):
             service.complete_http('alice', request, True)
         self.assertEqual(rooms.memberships['alice'], fresh['RoomId'])
 
+    def test_fresh_admission_releases_stuck_member_without_expiring_live_peer(self):
+        registry,rooms = SessionRegistry(reconnect=True),Rooms(2)
+        provider = Mock(return_value={'Result': {}})
+        service = RoomService(rooms,registry,completion_provider=provider)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        old_session = registry.open(tcp)
+        _,peer_tcp,_ = service.join(room['RoomId'],player('bob',1,False),'v')
+        peer_session = registry.open(peer_tcp)
+        current = rooms.rooms[room['RoomId']]
+        current.update(Status=1,PreparedBattle={
+            'alice':dict(EpisodeToken='old',BattleId='battle'),
+            'bob':dict(EpisodeToken='peer',BattleId='battle')})
+        service.release_abandoned_member('alice',fresh_admission=True)
+        self.assertNotIn('alice',rooms.memberships)
+        self.assertEqual(rooms.memberships['bob'],room['RoomId'])
+        self.assertIn(peer_session.session_id,registry.sessions)
+        self.assertNotIn(old_session.session_id,registry.sessions)
+        fresh = service.create(player(),'ep','v',False,1,1,(60,3,20))[0]
+        self.assertEqual(service.complete_http('alice',dict(EpisodeToken='old',Playlog=''),True),
+                         {'Result': {}})
+        provider.assert_called_once()
+        self.assertEqual(rooms.memberships['alice'],fresh['RoomId'])
+        self.assertNotIn('Completions',rooms.rooms[fresh['RoomId']])
+
+    def test_fresh_admission_can_release_a_stuck_unprepared_lobby(self):
+        registry,rooms = SessionRegistry(reconnect=True),Rooms(2)
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        registry.open(tcp)
+        service.release_abandoned_member('alice',fresh_admission=True)
+        self.assertNotIn('alice',rooms.memberships)
+        self.assertNotIn(room['RoomId'],rooms.rooms)
+        self.assertEqual(service.abandoned_battles,{})
+
     def test_abandonment_preserves_active_peers_and_repeated_frozen_contexts(self):
         now = [0]
         registry = SessionRegistry(clock=lambda: now[0], session_timeout=10, reconnect=True)

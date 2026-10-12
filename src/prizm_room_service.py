@@ -172,8 +172,8 @@ class RoomService:
             else:
                 del self.abandoned_battles[account]
 
-    def release_abandoned_member(self, account_id):
-        """Explicit new admission abandons a disconnected battle after grace.
+    def release_abandoned_member(self, account_id, *, fresh_admission=False):
+        """Release stale membership, or honor an authenticated fresh admission.
 
         Keep bounded frozen completion contexts per account; never evict an unresolved
         context, settle an invented result, or remove an active peer's room.
@@ -183,8 +183,14 @@ class RoomService:
             self.prune_abandoned_completions()
             room_id = self.rooms.memberships.get(account_id)
             room = self.rooms.rooms.get(room_id)
-            if (room is None or account_id not in room.get('PreparedBattle', {})
+            if room is None:
+                return
+            if not fresh_admission and (account_id not in room.get('PreparedBattle', {})
                     or any((entry['UserId'], room_id) in active for entry in room['Players'])):
+                return
+            if account_id not in room.get('PreparedBattle', {}):
+                if fresh_admission:
+                    self.leave(account_id, room_id)
                 return
             previous = self.abandoned_battles.get(account_id, [])
             if len(previous) >= 8 or sum(map(len, self.abandoned_battles.values())) >= 128:
@@ -278,7 +284,7 @@ class RoomService:
         self.expire_lobbies()
         with self.rooms.lock:
             self.release_returned_member(player['UserId'])
-            self.release_abandoned_member(player['UserId'])
+            self.release_abandoned_member(player['UserId'],fresh_admission=True)
             if player['UserId'] in self.rooms.memberships:
                 raise RoomError('Player already admitted.')
             candidates = self.discover(player['UserId'],episode_ids,version,route=2,
@@ -322,7 +328,7 @@ class RoomService:
                 raise RoomError('Guild room requires current membership.')
             settings = self.room_settings_provider(episode_id)
             self.release_returned_member(player['UserId'])
-            self.release_abandoned_member(player['UserId'])
+            self.release_abandoned_member(player['UserId'],fresh_admission=True)
             room,tcp,udp = self.create(player,episode_id,version,public_level == 2,
                                       public_level,settings['Mode'],settings['SuspendLimits'])
             current = self.rooms.rooms[room['RoomId']]
@@ -368,7 +374,7 @@ class RoomService:
         with self.rooms.lock:
             scope,context = self._discovery_scope(account_id,event_id,difficulty)
             self.release_returned_member(account_id)
-            self.release_abandoned_member(account_id)
+            self.release_abandoned_member(account_id,fresh_admission=True)
             if account_id in self.rooms.memberships:
                 raise RoomError('Player already admitted.')
             candidates = self.discover(account_id,scope,version,route=2,
@@ -651,6 +657,17 @@ class RoomService:
                     room = current = self.rooms._authorized_room(session)
                     guid = request[2 if command == 22 else 3][1]
                     owner = self._object(current,guid)
+                    if command == 24 and owner is None:
+                        previous = current.get('PreviousBattle',{})
+                        previous_owner = self._object(previous,guid)
+                        previous_account = (previous_owner[0] if previous_owner else
+                                            previous.get('DestroyedObjects',{}).get(guid))
+                        if (session.admission.account_id in previous.get('Completions',{})
+                                and request[2] in previous.get('PreparedBattle',{})
+                                and previous_account in (None,request[2])):
+                            # Late confirmation of a finished object's liveness
+                            # cannot affect the lobby or a newly prepared battle.
+                            return []
                     if 'PreparedBattle' not in room:
                         previous = current.get('PreviousBattle',{})
                         previous_owner = self._object(previous,guid)
@@ -891,8 +908,10 @@ class RoomService:
                 room = self.rooms.snapshot(session,command,False)
                 current = self.rooms.rooms[room['RoomId']]
                 if ('PreparedBattle' not in current and current['Status'] == 0
-                        and account in current.get('BackHomeUsers',set())
                         and account in current.get('PreviousBattle',{}).get('Completions',{})):
+                    current.setdefault('BackHomeUsers',set()).add(account)
+                    player = next(entry for entry in current['Players'] if entry['UserId'] == account)
+                    player['Ready'] = 0
                     return []
                 if (account not in current.get('PreparedBattle',{})
                         or account not in current.get('Completions',{})):
