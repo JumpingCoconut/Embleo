@@ -202,7 +202,20 @@ class RoomService:
                 return
             previous = self.abandoned_battles.get(account_id, [])
             if len(previous) >= 8 or sum(map(len, self.abandoned_battles.values())) >= 128:
-                raise RoomError('Abandoned battle retention capacity reached.')
+                # Spill one frozen context before releasing membership. Only an
+                # explicit durable provider may remove it from memory; failures
+                # leave both the old context and current membership untouched.
+                archive = getattr(type(self.completion_provider),'archive_detached',None)
+                if not callable(archive):
+                    raise RoomError('Abandoned battle retention capacity reached.')
+                owner = (account_id if len(previous) >= 8
+                         else next(iter(self.abandoned_battles)))
+                context = self.abandoned_battles[owner][0]
+                archive(self.completion_provider,owner,copy.deepcopy(context))
+                self.abandoned_battles[owner].pop(0)
+                self.abandoned_replay_deadlines.pop(id(context),None)
+                if not self.abandoned_battles[owner]:
+                    del self.abandoned_battles[owner]
             frozen = copy.deepcopy(room)
             self.abandoned_battles.setdefault(account_id, []).append(frozen)
             if account_id in frozen.get("Completions", {}):
@@ -505,6 +518,14 @@ class RoomService:
                             request['EpisodeToken'].encode('utf-8')):
                         room, prepared = abandoned, abandoned_prepared
                         break
+            if (prepared is None or not secrets.compare_digest(
+                    prepared['EpisodeToken'].encode('utf-8'),request['EpisodeToken'].encode('utf-8'))):
+                load = getattr(type(self.completion_provider),'load_detached',None)
+                if callable(load):
+                    detached = load(self.completion_provider,account_id,request['EpisodeToken'])
+                    if detached is not None:
+                        room = detached
+                        prepared = room.get('PreparedBattle',{}).get(account_id)
             if (prepared is None or not secrets.compare_digest(
                     prepared['EpisodeToken'].encode('utf-8'),request['EpisodeToken'].encode('utf-8'))):
                 raise RoomError('Completion token does not belong to this account battle.')
@@ -964,7 +985,7 @@ class RoomService:
                     if member:
                         # Existing departure revokes this room's credentials and
                         # notifies survivors, removing the native load-status wait.
-                        self.leave(target,room['RoomId'])
+                        self.release_abandoned_member(target,fresh_admission=True)
                 reply = msgpack.packb({},use_bin_type=True)
                 return [(service,rpc_response(17,request_id,reply),True)]
             except (ValueError,RoomError,msgpack.UnpackException):

@@ -28,7 +28,8 @@ class RoomServiceTests(unittest.TestCase):
         guest = Connection(registry,service)
         guest.receive(hello_request(tcp))
         current = rooms.rooms[room['RoomId']]
-        current.update(PreparedBattle={'alice':{'BattleId':'host'},'bob':{'BattleId':'guest'}},
+        current.update(PreparedBattle={'alice':{'BattleId':'host','EpisodeToken':'host-token'},
+                                      'bob':{'BattleId':'guest','EpisodeToken':'guest-token'}},
                        BattleRoster={'alice':'pl001','bob':'pl001'},LoadStatuses={'alice':2,'bob':0})
         host.notifications()
         request = rpc_request(17,9,msgpack.packb({1:1,3:'alice'}))
@@ -42,6 +43,8 @@ class RoomServiceTests(unittest.TestCase):
         self.assertNotIn('bob',rooms.memberships)
         self.assertEqual(rooms.memberships['alice'],room['RoomId'])
         self.assertEqual(set(current['PreparedBattle']),{'alice','bob'})
+        self.assertEqual(service.abandoned_battles['bob'][0]['PreparedBattle']['bob']['EpisodeToken'],
+                         'guest-token')
         with self.assertRaises(SessionError): registry.open(tcp)
         _,body = read_user_message(FrameDecoder().feed(host.notifications()[0])[0][1])
         command,payload = read_command_message(body)
@@ -50,6 +53,11 @@ class RoomServiceTests(unittest.TestCase):
         other,_,_ = service.create(player('bob'),'ep','v',False,1,1,(60,3,20))
         reply = service(host.session,1000,request,True)[0][1]
         self.assertEqual(read_rpc_response(reply)[:3],(17,1,10))
+        self.assertEqual(rooms.memberships['bob'],other['RoomId'])
+        self.assertEqual(len(service.abandoned_battles['bob']),1)
+        service.completion_provider = lambda account,room,data,retire: {'Result':{}}
+        self.assertEqual(service.complete_http('bob',dict(EpisodeToken='guest-token',Playlog=''),True),
+                         {'Result':{}})
         self.assertEqual(rooms.memberships['bob'],other['RoomId'])
 
     def test_checked_join_recovers_stuck_membership_only_after_destination_checks(self):

@@ -54,7 +54,7 @@ class CompletionSaves:
         return self._store.exists(self._account,name)
 
     def write(self, name, value):
-        if not self._writable or name == JOURNAL:
+        if not self._writable or name == JOURNAL or name.startswith('PveDetached-'):
             raise ValueError('Completion rendering and journal writes are restricted.')
         self._store.write(self._account,name,value)
 
@@ -79,6 +79,18 @@ class DurableCompletionProvider:
     def replay(self, account, room, data, retire):
         """Render an existing settlement; missing records never settle again."""
         return self._complete(account,room,data,retire,True)
+
+    def archive_detached(self, account, room):
+        from pve_detached import archive
+        if not self.database.is_file():
+            raise ValueError('Existing account database required.')
+        archive(self.database, account, room)
+
+    def load_detached(self, account, token):
+        from pve_detached import load
+        if not self.database.is_file():
+            raise ValueError('Existing account database required.')
+        return load(self.database, account, token)
 
     def _complete(self, account, room, data, retire, replay_only):
         request = completion_request(account,data,retire)

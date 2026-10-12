@@ -500,10 +500,18 @@ An authenticated create, matching or checked join request deliberately releases 
 account's existing membership and revokes its old transport credentials. Other
 members retain their room and sessions. Prepared battle completion contexts are
 frozen before departure, so late result requests remain scoped to their original
-battle. Passive cleanup still respects reconnect grace. Retention remains bounded
-to eight contexts per account and 128 total; unresolved contexts are protected,
-and reaching that limit rejects departure rather than discarding an unsettled
-result. This limit remains a recovery limitation for repeated unfinished battles.
+battle. Passive cleanup still respects reconnect grace. In-memory retention is
+bounded to eight contexts per account and 128 total. `DurableCompletionProvider`
+spills an older frozen context to an account-scoped SQLite save before releasing
+membership at that limit. Late completion can load that context by the original
+account and token, including after a process restart. Archival never settles a
+battle or grants rewards; the existing completion journal still owns idempotency.
+Contexts preserve tuples, sets, integer map keys and binary values and are limited
+to 4 MiB before compression. Archival failure leaves membership and the original
+context intact. Providers without explicit durable hooks retain the original
+capacity rejection. Durable overflow records are retained without automatic
+eviction and require the same storage/backups as other account saves; this does
+not persist active rooms or the most recent in-memory contexts across restarts.
 Checked joins validate destination availability, access and capacity before
 releasing membership. A guest retry to the same open room replaces its admission;
 a host joining its own room is rejected without destroying that room.
