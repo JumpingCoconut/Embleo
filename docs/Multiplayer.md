@@ -488,6 +488,13 @@ mapping rather than indiscriminate echo.
 
 ### Verification
 
+Lobby character updates accept the native `UserCharacter` envelope and its
+`userCharacter` alias; conflicting aliases are rejected. A null equipment array
+means an empty loadout, and null slots become empty strings without shifting
+the remaining slot positions. Other invalid slot types remain rejected. See
+`prizm_room_service.py` and `tests/test_prizm_room_service.py`; verify a guest
+equipment change and return to the lobby on two clients.
+
 Retry recovery is implemented in `prizm_room_service.py`. A settled guest may
 send room Reset after the host has reopened the lobby, without first sending
 BackHome. Liveness confirmations for absent previous-battle objects are ignored
