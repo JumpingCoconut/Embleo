@@ -748,13 +748,13 @@ class RoomService:
                     account = session.admission.account_id
                     if command == 4:
                         if 'PreparedBattle' not in room:
-                            raise RoomError('Movement requires a prepared battle.')
+                            raise RoomError('Battle action requires a prepared battle.')
                         if owner is None and guid in current.get('DestroyedObjects',{}):
-                            raise RoomError('Movement targets a destroyed object.')
+                            raise RoomError('Battle action targets a destroyed object.')
                         if owner is not None and owner[0] != account:
                             if guid in current.get('MinionObjects',{}):
-                                raise RoomError('Movement sender does not own this minion.')
-                            raise RoomError('Movement sender does not own this object.')
+                                raise RoomError('Battle action sender does not own this minion.')
+                            raise RoomError('Battle action sender does not own this object.')
                     if 'PreparedBattle' not in room or owner is None:
                         raise RoomError('Action sender does not own this object.')
                     if command == 16:

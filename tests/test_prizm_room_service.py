@@ -18,7 +18,7 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
-    def test_guest_bit_summon_movement_and_destruction_diagnostics(self):
+    def test_guest_bit_summon_battle_action_and_destruction_diagnostics(self):
         from pve_minions import PreparedBitSummons
         from test_pve_minions import BitSummonTests
         rooms,registry = Rooms(2),SessionRegistry()
@@ -42,13 +42,13 @@ class RoomServiceTests(unittest.TestCase):
         move = command_message(4,msgpack.packb({1:request[1]}))
         service(guest.session,2000,move,True)
         self.assertEqual(len(host.notifications()),1)
-        with self.assertRaisesRegex(RoomError,'Movement sender does not own this minion'):
+        with self.assertRaisesRegex(RoomError,'Battle action sender does not own this minion'):
             service(host.session,2000,move,True)
         service(guest.session,2000,command_message(14,msgpack.packb({1:request[1]})),True)
-        with self.assertRaisesRegex(RoomError,'Movement targets a destroyed object'):
+        with self.assertRaisesRegex(RoomError,'Battle action targets a destroyed object'):
             service(guest.session,2000,move,True)
         current.pop('PreparedBattle')
-        with self.assertRaisesRegex(RoomError,'Movement requires a prepared battle'):
+        with self.assertRaisesRegex(RoomError,'Battle action requires a prepared battle'):
             service(guest.session,2000,move,True)
 
     def test_settled_peer_liveness_confirmation_cannot_affect_next_battle(self):
