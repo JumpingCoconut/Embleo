@@ -654,12 +654,13 @@ class RoomService:
                     if 'PreparedBattle' not in room:
                         previous = current.get('PreviousBattle',{})
                         previous_owner = self._object(previous,guid)
+                        previous_account = (previous_owner[0] if previous_owner else
+                                            previous.get('DestroyedObjects',{}).get(guid))
                         if (command == 22 and current.get('Status') == 0
-                                and previous_owner is not None
-                                and previous_owner[0] == session.admission.account_id
+                                and previous_account in (None,session.admission.account_id)
                                 and session.admission.account_id in previous.get('Completions',{})):
                             # A settled client's final heartbeat may follow Reset.
-                            # Ignore only its own retained previous-battle object.
+                            # Absent objects grant no ownership and never fan out.
                             return []
                         raise RoomError('Unknown battle object.')
                     if command == 22 and owner is None:
@@ -694,9 +695,10 @@ class RoomService:
                         previous_account = (previous_owner[0] if previous_owner else
                                             previous.get('DestroyedObjects',{}).get(guid))
                         if (current['Status'] == 0 and account in previous.get('Completions',{})
-                                and previous_account == account):
+                                and previous_account in (None,account)):
                             # Native cleanup may follow Reset. The old object is
-                            # already absent; do not fan out into the new lobby.
+                            # already absent (including client-local objects never
+                            # registered here); do not fan out into the new lobby.
                             return []
                         raise RoomError('Destruction sender does not own this object.')
                     if (owner[0] if owner else retired) != account:
