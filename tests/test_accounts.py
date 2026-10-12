@@ -327,6 +327,23 @@ class AccountTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.saved(user, "UserCharacter.json"), before)
 
+    def test_character_update_preserves_native_empty_slot_positions(self):
+        user, token = self.register()
+        other, _ = self.register("Other")
+        result = self.unpack(self.post("/api/user/character-update", {"UserCharacter": [
+            {"CharacterId": "pl001", "VisualEquipment": ["costume", "spear", None, None],
+             "WeaponMain": ["spear", None], "WeaponSub": None}]}, token))
+        row = result["UserCharacter"][0]
+        self.assertEqual(row["VisualEquipment"], ["costume", "spear", "", ""])
+        self.assertEqual(row["WeaponMain"], ["spear", ""])
+        self.assertEqual(row["WeaponSub"], [])
+        self.assertEqual(self.saved(other, "UserCharacter.json"), seeds()["UserCharacter.json"])
+        before = self.saved(user, "UserCharacter.json")
+        response = self.post("/api/user/character-update", {"UserCharacter": [
+            {"CharacterId": "pl001", "WeaponMain": ["changed"], "Food": [42]}]}, token)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.saved(user, "UserCharacter.json"), before)
+
     def test_checkpoints_are_isolated_and_reset_only_own_save(self):
         alice, token = self.register()
         bob, bob_token = self.register("Bob")

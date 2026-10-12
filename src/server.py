@@ -1769,9 +1769,14 @@ def api_user_character_update():
 				"AccessoryMain", "AccessorySub", "CostumeSpell", "WeaponSpell", "Food"):
 			request_key = key if key in update else key[0].lower() + key[1:]
 			if request_key in update:
-				if not isinstance(update[request_key], list) or not all(isinstance(v, str) for v in update[request_key]):
+				values = update[request_key]
+				# Native string arrays use null for unequipped slots. Keep their
+				# positions (notably costume/weapon visuals), using saved empty IDs.
+				if values is None:
+					values = []
+				if not isinstance(values, list) or not all(v is None or isinstance(v, str) for v in values):
 					raise AccountError("Invalid character loadout.")
-				entry[key] = update[request_key]
+				entry[key] = ["" if v is None else v for v in values]
 	save_json("./data/user/UserCharacter.json", characters)
 	character_update_response_json["UserCharacter"] = [by_id[character_id] for character_id in updated_ids]
 
