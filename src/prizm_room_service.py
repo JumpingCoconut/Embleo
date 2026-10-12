@@ -689,16 +689,17 @@ class RoomService:
                     recipient = request.get(100,'') or None
                     if recipient is not None and recipient not in {entry['UserId'] for entry in room['Players']}:
                         raise RoomError('Destruction recipient is not a room member.')
-                    if 'PreparedBattle' not in room:
+                    if 'PreparedBattle' not in room or (owner is None and retired is None):
                         previous = current.get('PreviousBattle',{})
                         previous_owner = self._object(previous,guid)
                         previous_account = (previous_owner[0] if previous_owner else
                                             previous.get('DestroyedObjects',{}).get(guid))
-                        if (current['Status'] == 0 and account in previous.get('Completions',{})
+                        if (account in previous.get('Completions',{})
                                 and previous_account in (None,account)):
                             # Native cleanup may follow Reset. The old object is
                             # already absent (including client-local objects never
-                            # registered here); do not fan out into the new lobby.
+                            # registered here). Cleanup can also follow preparation
+                            # of the next raid; never touch or notify its objects.
                             return []
                         raise RoomError('Destruction sender does not own this object.')
                     if (owner[0] if owner else retired) != account:

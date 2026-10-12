@@ -18,6 +18,35 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
+    def test_old_cleanup_after_next_preparation_leaves_new_objects_unchanged(self):
+        import copy
+        rooms,registry = Rooms(4),SessionRegistry()
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        connection = Connection(registry,service)
+        connection.receive(hello_request(tcp))
+        old,new,other = b'o'*16,b'n'*16,b'b'*16
+        current = rooms.rooms[room['RoomId']]
+        current.update(Status=1,PreparedBattle={'alice':{'BattleId':'next'}},
+                       PlayerObjects={new:('alice',{}),other:('bob',{})},
+                       PreviousBattle={'Completions':{'alice':('settled',{})},
+                                       'PlayerObjects':{old:('alice',{})}})
+        before = copy.deepcopy(current)
+        with patch.object(service,'broadcast') as broadcast:
+            for guid in (old,b'x'*16):
+                cleanup = command_message(14,msgpack.packb({1:{1:guid}}))
+                self.assertEqual(connection.receive(user_message(2000,cleanup)),[])
+            broadcast.assert_not_called()
+        self.assertFalse(connection.closed)
+        self.assertEqual(current,before)
+        for guid in (other,old):
+            current['PreviousBattle']['PlayerObjects'][old] = ('bob',{})
+            with self.assertRaises(RoomError):
+                service(connection.session,2000,command_message(14,msgpack.packb({1:{1:guid}})),True)
+        current['PreviousBattle']['Completions'].clear()
+        with self.assertRaises(RoomError):
+            service(connection.session,2000,command_message(14,msgpack.packb({1:{1:b'x'*16}})),True)
+
     def test_damage_reflection_authenticates_source_for_remote_target(self):
         rooms,registry = Rooms(4),SessionRegistry()
         service = RoomService(rooms,registry)
