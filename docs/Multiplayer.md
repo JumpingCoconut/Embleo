@@ -520,6 +520,12 @@ transport has disconnected. Checked joins also reject that disconnected host
 until reconnection or expiry/handover. This hides ghost listings while retaining
 the existing reconnect window and frozen battle results. A successful host
 reconnection makes the open room discoverable again.
+For an unfinished prepared battle, a known disconnected host is also released
+after its transport reconnect grace expires. Survivors receive the existing
+leave notification, and the departed host's frozen completion context is retained.
+Initial admissions without an observed disconnect and successful reconnections
+are protected. Storage/capacity failures defer this cleanup with a bounded fixed
+diagnostic, leaving the periodic cleanup task running and the context intact.
 
 From the repository root:
 

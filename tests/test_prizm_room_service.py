@@ -18,6 +18,70 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
+    def test_unsettled_disconnected_host_expires_after_grace_preserving_late_retire(self):
+        now = [0]
+        registry = SessionRegistry(clock=lambda:now[0],session_timeout=10,reconnect=True)
+        rooms = Rooms(3)
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        host = Connection(registry,service)
+        host.receive(hello_request(tcp))
+        _,peer_tcp,_ = service.join(room['RoomId'],player('bob'),'v')
+        peer = Connection(registry,service)
+        peer.receive(hello_request(peer_tcp))
+        current = rooms.rooms[room['RoomId']]
+        current.update(Status=1,PreparedBattle={'alice':{'EpisodeToken':'host-token','BattleId':'battle'},
+                       'bob':{'EpisodeToken':'guest-token','BattleId':'battle'}},
+                       BattleRoster={'alice':'pl001','bob':'pl001'})
+        host.notifications()
+        peer.notifications()
+        host.close()
+        now[0] = 9
+        registry.get(peer.session.session_id)
+        service.expire_lobbies()
+        self.assertEqual(rooms.memberships['alice'],room['RoomId'])
+        now[0] = 10
+        service.expire_lobbies()
+        self.assertNotIn('alice',rooms.memberships)
+        self.assertEqual(rooms.memberships['bob'],room['RoomId'])
+        self.assertFalse(peer.closed)
+        _,body = read_user_message(FrameDecoder().feed(peer.notifications()[0])[0][1])
+        command,payload = read_command_message(body)
+        self.assertEqual((command,msgpack.unpackb(payload,raw=False,strict_map_key=False)[1]),(4,'alice'))
+        with self.assertRaises(SessionError): registry.open(tcp)
+        service.completion_provider = lambda account,room,data,retire: {'Result':{}}
+        self.assertEqual(service.complete_http('alice',dict(EpisodeToken='host-token',Playlog=''),True),
+                         {'Result':{}})
+        self.assertNotIn('Completions',current)
+        new,_,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        self.assertNotEqual(new['RoomId'],room['RoomId'])
+
+    def test_host_reconnection_clears_expiry_and_failed_storage_defers_cleanup(self):
+        now = [0]
+        registry = SessionRegistry(clock=lambda:now[0],session_timeout=10,reconnect=True)
+        rooms = Rooms(2)
+        service = RoomService(rooms,registry)
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        host = Connection(registry,service)
+        host.receive(hello_request(tcp))
+        rooms.rooms[room['RoomId']].update(Status=1,
+            PreparedBattle={'alice':{'EpisodeToken':'token','BattleId':'battle'}})
+        host.close()
+        now[0] = 9
+        reconnect = Connection(registry,service)
+        reconnect.receive(hello_request(tcp))
+        now[0] = 10
+        service.expire_lobbies()
+        self.assertEqual(rooms.memberships['alice'],room['RoomId'])
+        self.assertEqual(service.abandoned_battles,{})
+        reconnect.close()
+        service.abandoned_battles['alice'] = [{} for _ in range(8)]
+        now[0] = 20
+        service.expire_lobbies()
+        self.assertEqual(rooms.memberships['alice'],room['RoomId'])
+        self.assertEqual(service.cleanup_diagnostics.counts[('cleanup_deferred','host_expiry')],1)
+        self.assertEqual(len(service.abandoned_battles['alice']),8)
+
     def test_native_host_timeout_kick_releases_stalled_member_and_notifies_survivors(self):
         rooms,registry = Rooms(3),SessionRegistry(reconnect=True)
         service = RoomService(rooms,registry)

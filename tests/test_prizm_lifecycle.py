@@ -132,7 +132,7 @@ class LobbyExpiryTests(unittest.TestCase):
         self.assertFalse(replacement.closed)
         self.assertIn(replacement.session.session_id, self.service.connections)
 
-    def test_prepared_battle_roster_and_completion_state_are_never_expired(self):
+    def test_expired_prepared_host_preserves_frozen_roster_and_completion_state(self):
         room, tcp, _ = self.create()
         self.connect(tcp).close()
         current = self.rooms.rooms[room['RoomId']]
@@ -142,10 +142,11 @@ class LobbyExpiryTests(unittest.TestCase):
         before = copy.deepcopy(current)
         self.now = 1000
         self.service.expire_lobbies()
-        self.assertEqual(current, before)
-        self.assertEqual(self.rooms.memberships['alice'], room['RoomId'])
-        with self.assertRaises(RoomError):
-            self.create()
+        self.assertEqual(self.service.abandoned_battles['alice'][0], before)
+        self.assertNotIn('alice', self.rooms.memberships)
+        self.assertNotIn(room['RoomId'], self.rooms.rooms)
+        fresh, _, _ = self.create()
+        self.assertNotEqual(fresh['RoomId'], room['RoomId'])
 
     def test_udp_only_credential_does_not_keep_single_use_admission_alive(self):
         registry = SessionRegistry(clock=lambda: self.now, session_timeout=10)

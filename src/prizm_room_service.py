@@ -4,7 +4,9 @@ import copy
 import secrets
 import re
 import time
+import sqlite3
 import msgpack
+from prizm_diagnostics import Diagnostics
 
 from prizm_lobby import (LobbyService, player_payload, ready_notification, join_notification,
                          leave_notification, in_game_start_notification, character_change_notification)
@@ -97,6 +99,7 @@ class RoomService:
         self.disconnected_admissions = set()
         self.abandoned_battles = {}
         self.abandoned_replay_deadlines = {}
+        self.cleanup_diagnostics = Diagnostics('rooms')
 
     @staticmethod
     def _object(room, guid):
@@ -122,8 +125,8 @@ class RoomService:
     def expire_lobbies(self):
         """Release abandoned lobbies after their actual reconnect window ends.
 
-        Unsettled prepared battles retain membership for start retries and
-        completion. Settled results retain it through the reconnect window.
+        Prepared battles retain completion context. A known disconnected host
+        cannot strand loading peers after its reconnect window expires.
         """
         active = self.registry.active_admissions()
         with self.rooms.lock:
@@ -136,6 +139,20 @@ class RoomService:
                 open_lobby = 'PreparedBattle' not in room and room['Status'] == 0
                 settled = ('GameOver' in room
                            and account_id in room.get('Completions',{}))
+                lost_host = ('PreparedBattle' in room and 'GameOver' not in room
+                             and (account_id,room_id) in self.disconnected_admissions
+                             and any(entry['UserId'] == account_id and entry['IsHost']
+                                     for entry in room['Players']))
+                if lost_host and (account_id,room_id) not in active:
+                    try:
+                        self.release_abandoned_member(account_id,fresh_admission=True)
+                    except (ValueError,OSError,sqlite3.Error):
+                        # A storage/capacity failure must not stop the periodic
+                        # cleanup task or discard this account's frozen context.
+                        self.cleanup_diagnostics.record('cleanup_deferred','host_expiry')
+                    else:
+                        self.cleanup_diagnostics.record('host_expired','room_cleanup')
+                    continue
                 if (open_lobby or settled) and (account_id, room_id) not in active:
                     self.leave(account_id, room_id)
 
