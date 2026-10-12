@@ -685,11 +685,22 @@ class RoomService:
                     account,guid = session.admission.account_id,request[1][1]
                     owner = self._object(current,guid)
                     retired = current.get('DestroyedObjects',{}).get(guid)
-                    if 'PreparedBattle' not in room or (owner[0] if owner else retired) != account:
-                        raise RoomError('Destruction sender does not own this object.')
                     recipient = request.get(100,'') or None
                     if recipient is not None and recipient not in {entry['UserId'] for entry in room['Players']}:
                         raise RoomError('Destruction recipient is not a room member.')
+                    if 'PreparedBattle' not in room:
+                        previous = current.get('PreviousBattle',{})
+                        previous_owner = self._object(previous,guid)
+                        previous_account = (previous_owner[0] if previous_owner else
+                                            previous.get('DestroyedObjects',{}).get(guid))
+                        if (current['Status'] == 0 and account in previous.get('Completions',{})
+                                and previous_account == account):
+                            # Native cleanup may follow Reset. The old object is
+                            # already absent; do not fan out into the new lobby.
+                            return []
+                        raise RoomError('Destruction sender does not own this object.')
+                    if (owner[0] if owner else retired) != account:
+                        raise RoomError('Destruction sender does not own this object.')
                     if owner is None:
                         return []
                     if recipient is None:

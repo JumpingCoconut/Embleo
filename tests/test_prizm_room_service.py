@@ -201,6 +201,18 @@ class RoomServiceTests(unittest.TestCase):
         self.assertEqual(msgpack.unpackb(read_rpc_response(response)[3],strict_map_key=False),{1:1,2:report})
         with self.assertRaises(RoomError):
             service(connection.session,2000,rpc_request(0,83,msgpack.packb(report | {1:0})),True)
+        cleanup = command_message(14,msgpack.packb({1:{1:guid}}))
+        with patch.object(service,'broadcast') as broadcast:
+            self.assertEqual(connection.receive(user_message(2000,cleanup)),[])
+            broadcast.assert_not_called()
+        previous = current['PreviousBattle']
+        previous['PlayerObjects'].pop(guid)
+        previous['DestroyedObjects'] = {guid:'alice'}
+        self.assertEqual(service(connection.session,2000,cleanup,True),[])
+        previous['DestroyedObjects'][guid] = 'bob'
+        with self.assertRaises(RoomError):
+            service(connection.session,2000,cleanup,True)
+        previous['DestroyedObjects'][guid] = 'alice'
         import copy
         before = copy.deepcopy(current)
         self.assertEqual(service(connection.session,1000,body,True),[])
