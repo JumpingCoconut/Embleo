@@ -18,6 +18,39 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
+    def test_guest_bit_summon_movement_and_destruction_diagnostics(self):
+        from pve_minions import PreparedBitSummons
+        from test_pve_minions import BitSummonTests
+        rooms,registry = Rooms(2),SessionRegistry()
+        service = RoomService(rooms,registry,battle_minion_provider=PreparedBitSummons())
+        room,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        host = Connection(registry,service)
+        host.receive(hello_request(tcp))
+        _,tcp,_ = service.join(room['RoomId'],player('bob'),'v')
+        guest = Connection(registry,service)
+        guest.receive(hello_request(tcp))
+        fixture,request = BitSummonTests().fixture()
+        for key in ('BattleCharacters','PreparedBattle'):
+            fixture[key]['bob'] = fixture[key].pop('alice')
+        fixture['PlayerObjects'][request[2][1]] = ('bob',{})
+        current = rooms.rooms[room['RoomId']]
+        current.update(fixture)
+        host.notifications()
+        service(guest.session,2000,command_message(27,msgpack.packb(request)),True)
+        sid,body = read_user_message(FrameDecoder().feed(host.notifications()[0])[0][1])
+        self.assertEqual((sid,read_command_message(body)[0]),(2000,28))
+        move = command_message(4,msgpack.packb({1:request[1]}))
+        service(guest.session,2000,move,True)
+        self.assertEqual(len(host.notifications()),1)
+        with self.assertRaisesRegex(RoomError,'Movement sender does not own this minion'):
+            service(host.session,2000,move,True)
+        service(guest.session,2000,command_message(14,msgpack.packb({1:request[1]})),True)
+        with self.assertRaisesRegex(RoomError,'Movement targets a destroyed object'):
+            service(guest.session,2000,move,True)
+        current.pop('PreparedBattle')
+        with self.assertRaisesRegex(RoomError,'Movement requires a prepared battle'):
+            service(guest.session,2000,move,True)
+
     def test_settled_peer_liveness_confirmation_cannot_affect_next_battle(self):
         import copy
         rooms,registry = Rooms(4),SessionRegistry()
