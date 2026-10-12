@@ -18,6 +18,34 @@ from prizm_protocol import ProtocolError
 
 
 class RoomServiceTests(unittest.TestCase):
+    def test_checked_join_recovers_stuck_membership_only_after_destination_checks(self):
+        rooms,registry = Rooms(2),SessionRegistry(reconnect=True)
+        service = RoomService(rooms,registry)
+        old,tcp,_ = service.create(player(),'ep','v',False,1,1,(60,3,20))
+        old_session = registry.open(tcp)
+        current = rooms.rooms[old['RoomId']]
+        current.update(Status=1,PreparedBattle={'alice':{'BattleId':'old','EpisodeToken':'old-token'}})
+        target,_,_ = service.create(player('bob'),'ep','v',False,1,1,(60,3,20))
+        for identity,version,scope in ((target['RoomId'],'wrong',['ep']),
+                                       (target['RoomId'],'v',['other']),('absent','v',['ep'])):
+            with self.assertRaises(RoomError):
+                service.join_checked(identity,player(),'v' if version == 'v' else version,3,scope)
+            self.assertEqual(rooms.memberships['alice'],old['RoomId'])
+            self.assertIn(old_session.session_id,registry.sessions)
+            self.assertEqual(service.abandoned_battles,{})
+        admitted,_,_ = service.join_checked(target['RoomId'],player(),'v',3,['ep'])
+        self.assertEqual(admitted['RoomId'],target['RoomId'])
+        self.assertNotIn(old_session.session_id,registry.sessions)
+        self.assertEqual(service.abandoned_battles['alice'][0]['PreparedBattle']['alice']['EpisodeToken'],
+                         'old-token')
+        # Retrying a guest join to the same open room replaces only that guest.
+        service.join_checked(target['RoomId'],player(),'v',3,['ep'])
+        self.assertEqual(len(rooms.rooms[target['RoomId']]['Players']),2)
+        self.assertEqual(rooms.memberships['bob'],target['RoomId'])
+        with self.assertRaises(RoomError):
+            service.join_checked(target['RoomId'],player('bob'),'v',3,['ep'])
+        self.assertEqual(rooms.memberships['bob'],target['RoomId'])
+
     def test_guest_bit_summon_battle_action_and_destruction_diagnostics(self):
         from pve_minions import PreparedBitSummons
         from test_pve_minions import BitSummonTests

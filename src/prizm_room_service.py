@@ -6,7 +6,7 @@ import re
 import time
 import msgpack
 
-from prizm_lobby import (LobbyService, ready_notification, join_notification,
+from prizm_lobby import (LobbyService, player_payload, ready_notification, join_notification,
                          leave_notification, in_game_start_notification, character_change_notification)
 from prizm_protocol import read_command_message, ProtocolError, rpc_response
 from prizm_discovery import room_access
@@ -231,10 +231,28 @@ class RoomService:
             raise ValueError('Invalid authorized episode scope.')
         def allowed(room):
             return self._access(room,player['UserId'],route,episode_ids)
-        room = self.rooms.join(room_id,player,version,admission_policy=allowed)
-        admission = self._credentials(room,player['UserId'])
-        self.admitted(room,player['UserId'])
-        return admission
+        with self.rooms.lock:
+            # Validate the destination before abandoning another room. A failed
+            # code/access/capacity check must not evict an existing membership.
+            player_payload(player,allow_unselected=True)
+            target = self.rooms.rooms.get(room_id)
+            if target is None:
+                raise RoomError('Unknown room.')
+            if target['PveVersion'] != version or target['Status'] != 0 or 'PreparedBattle' in target:
+                raise RoomError('Incompatible or unavailable room.')
+            if not allowed(target):
+                raise RoomError('Room admission denied.')
+            account = player['UserId']
+            existing = next((entry for entry in target['Players'] if entry['UserId'] == account),None)
+            if existing is not None and existing['IsHost']:
+                raise RoomError('Host is already admitted to this room.')
+            if existing is None and len(target['Players']) >= self.rooms.capacity:
+                raise RoomError('Room is full.')
+            self.release_abandoned_member(account,fresh_admission=True)
+            room = self.rooms.join(room_id,player,version,admission_policy=allowed)
+            admission = self._credentials(room,account)
+            self.admitted(room,account)
+            return admission
 
     def _access(self, room, account_id, route, episode_ids):
         if room['EpisodeId'] not in episode_ids:

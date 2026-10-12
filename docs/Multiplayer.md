@@ -496,7 +496,7 @@ known previous ownership must agree with the recipient. These confirmations do
 not broadcast or modify a newly prepared battle. Current registered objects
 retain their normal ownership checks.
 
-An authenticated create or matching request deliberately releases the requesting
+An authenticated create, matching or checked join request deliberately releases the requesting
 account's existing membership and revokes its old transport credentials. Other
 members retain their room and sessions. Prepared battle completion contexts are
 frozen before departure, so late result requests remain scoped to their original
@@ -504,6 +504,9 @@ battle. Passive cleanup still respects reconnect grace. Retention remains bounde
 to eight contexts per account and 128 total; unresolved contexts are protected,
 and reaching that limit rejects departure rather than discarding an unsettled
 result. This limit remains a recovery limitation for repeated unfinished battles.
+Checked joins validate destination availability, access and capacity before
+releasing membership. A guest retry to the same open room replaces its admission;
+a host joining its own room is rejected without destroying that room.
 
 From the repository root:
 
