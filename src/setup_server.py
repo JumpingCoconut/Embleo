@@ -35,12 +35,12 @@ adapt_scenario = True
 generate = True
 
 # Download and extract manifest from the asset server
-path_cwd = Path(__file__).resolve().parent.parent
+path_cwd = Path(__file__).resolve().parent
 
-asset_server_link_file = path_cwd / "src" / "asset_server_link.txt"
+asset_server_link_file = path_cwd / "asset_server_link.txt"
 asset_server_link = ""
 
-DATA_FOLDER = path_cwd / "src" / "data"
+DATA_FOLDER = path_cwd / "data"
 DOWNLOAD_FOLDER = DATA_FOLDER / "download"
 EXTRACT_FOLDER = DATA_FOLDER / "extract"
 
