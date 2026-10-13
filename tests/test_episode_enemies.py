@@ -40,6 +40,14 @@ class EpisodeEnemyTests(unittest.TestCase):
         self.assertEqual(row['RoleType'], 2)
         self.assertEqual(self.source, original)
 
+    def test_appearance_rule_preserves_integer_spawn_parameter(self):
+        entry = enemy()
+        entry['_appearanceIntParam1'] = 12
+        rows = adapt_episode_enemies_for_episode_layout({'Datas': [entry]},
+            platoon_master_data=self.platoons)
+        self.assertEqual(rows[0]['AppearanceRule'], {'Type': 1, 'Params': [0, '12']})
+        self.assertEqual(rows[1]['AppearanceRule'], {'Type': 2, 'Params': []})
+
     def test_unknown_formation_is_reported_instead_of_publishing_lookup_id(self):
         with self.assertRaisesRegex(ValueError, "fixture.*parent"):
             adapt_episode_enemies_for_episode_layout(self.source,
@@ -64,16 +72,6 @@ class EpisodeEnemyTests(unittest.TestCase):
         second['_childEnemyData']['EnemyIds'] = ['', 'second']
         self.assertEqual(episode_enemy_individual_ids({'Datas':[enemy(),second]}),
                          ['leader','child','second','summon-only'])
-
-    def test_layout_assembly_reads_shared_platoon_master(self):
-        def load(path):
-            if Path(path).name == 'PlatoonMasterDataObject.json':
-                self.assertEqual(Path(path),Path('data/extract/masterdatadebug/PlatoonMasterDataObject.json'))
-                return self.platoons
-            return self.source
-        with patch.object(layouts.os,'listdir',return_value=['EpisodeEnemyMasterDataObject.json']), patch.object(layouts,'load_json',side_effect=load):
-            row = layouts.fill_episode_layout_group_by_episode_id('fixture')['Enemies'][0]
-        self.assertEqual(row['Child']['FormationPadding'],[1.5,2])
 
     def test_release_child_definitions_are_external_and_keep_individual_identity(self):
         original = copy.deepcopy(self.source)

@@ -44,10 +44,10 @@ def adapt_episode_enemies_for_episode_layout(master_data, *, platoon_master_data
 			"EpisodeEnemyId": entry["_id"],
 			"EnemyId": entry["_individualID"],
 			"RoleType": entry["_enemyType"] + 1,  # 0 is Unknown and breaks enemy
-			# "Flags": 0,
+			"Flags": 0,
 
 			"AppearanceNum": entry["_appearanceNum"],
-			"MaxAppearanceNum": entry["_appearanceNum"] + 10,
+			"MaxAppearanceNum": entry["_appearanceNum"],
 
 			"GroupId": entry["_groupID"],
 
@@ -83,9 +83,9 @@ def adapt_episode_enemies_for_episode_layout(master_data, *, platoon_master_data
 				if formation else [0, 0]
 		}
 
+		# EpisodeEnemySummonRule
 		summon_data = entry["_summonEnemyData"]
 
-		# EpisodeEnemySummonRule
 		layout_entry["SummonRule"] = {
 			"EpisodeEnemyId": summon_data["EnemyId"],
 			"InitialAppearNum": summon_data["_initialAppearNum"],
@@ -106,7 +106,7 @@ def adapt_episode_enemies_for_episode_layout(master_data, *, platoon_master_data
 		# Release clients do not run the debug-local external-definition builder.
 		# These definitions are looked up by child/summon creation, never placed.
 		targets = (entry["_childEnemyData"]["EnemyIds"] if entry["_enemyType"] == 1
-			else [summon_data["EnemyId"]] if entry["_enemyType"] == 2
+			else [entry["_summonEnemyData"]["EnemyId"]] if entry["_enemyType"] == 2
 			else [])
 		for individual_id in dict.fromkeys(targets):
 			if not individual_id:
@@ -119,7 +119,7 @@ def adapt_episode_enemies_for_episode_layout(master_data, *, platoon_master_data
 				"EpisodeEnemyId": external_id,
 				"EnemyId": individual_id,
 				"RoleType": 1,
-				"Flags": layout_entry.get("Flags", 0) & 8,  # Inherit only the parent's wait state.
+				"Flags": layout_entry["Flags"] & 8,  # Inherit only the parent's wait state.
 				"AppearanceNum": 1,
 				"MaxAppearanceNum": 1,
 				"GroupId": entry["_groupID"],
