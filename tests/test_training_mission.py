@@ -14,8 +14,8 @@ import server
 
 class TrainingMissionTests(unittest.TestCase):
     def test_token_rejects_tampering_another_account_and_another_stage(self):
-        token = mission_token('account-a', 'exp_mission_005', 'pl008')
-        self.assertEqual(token_character(token, 'account-a', 'exp_mission_005'), 'pl008')
+        token = mission_token('account-a', 'exp_mission_005', 'pl010')
+        self.assertEqual(token_character(token, 'account-a', 'exp_mission_005'), 'pl010')
         for value, account, mission in ((token + 'x', 'account-a', 'exp_mission_005'),
                 (token, 'account-b', 'exp_mission_005'),
                 (token, 'account-a', 'exp_mission_001')):
@@ -43,13 +43,28 @@ class TrainingMissionTests(unittest.TestCase):
                 patch.object(server, 'load_json', return_value=authored):
             self.assertIs(server.load_adapted_episode_scenario('exp_mission_005'), authored)
 
+    def test_exp_bootstrap_supplies_both_scenario_list_and_scenario_group(self):
+        installed = dict(Datas=[dict(_id='CP_native', _startScenarioNo=1, IsDarkenRestart=0)])
+        with patch.object(server, 'does_file_exist', return_value=False), \
+                patch.object(server, 'load_json', return_value=installed):
+            scenarios = server.fill_scenario_list_from_adapted_scenario('exp_mission_001')
+            group = server.fill_scenario_group_from_adapted_scenario('exp_mission_001')
+        self.assertEqual(scenarios[0]['ProgressId'], group['CheckPoints'][0]['ProgressCheckPointId'])
+        self.assertEqual(group['CheckPoints'][0]['LayoutCheckPointId'], 'CP_native')
+
+    def test_sc_bootstrap_still_uses_existing_secret_mission_checkpoint(self):
+        with patch.object(server, 'does_file_exist', return_value=False):
+            self.assertIs(server.load_adapted_episode_scenario('pl001_sc001'),
+                          server.secret_mission_base_scenario)
+
     def test_start_preserves_selected_stage_character_equipment_and_saved_level(self):
-        selected = dict(CharacterId='pl008', Level=17, Exp=321,
+        selected = dict(CharacterId='pl010', Level=17, Exp=321,
                         VisualEquipment=['costume', 'weapon', '', '', '', ''])
         characters = [selected]
-        detail = dict(userCharacters=characters, userEquipments=[], baseVisual={})
+        detail = dict(characters=[dict(CharacterId="pl001"), dict(CharacterId="pl010")],
+                      userCharacters=characters, userEquipments=[], baseVisual={})
         episode = dict(Scenarios=[dict(ScenarioNo=1)], LayoutGroup=dict(CheckPoints=[
-            dict(PartyPlayers=['pl001'], LoadPlayers=[])]))
+            dict(PartyPlayers=['pl001'], LoadPlayers=['pl001'])]))
         original = deepcopy(detail)
         calculator = Mock()
         calculator.character.return_value = dict(Hp=9876)
@@ -59,7 +74,7 @@ class TrainingMissionTests(unittest.TestCase):
                                                  LocationId='SCH01')])
             return {}
         with server.app.test_request_context('/api/training-mission/start', method='POST',
-                data=msgpack.packb(dict(trainingMissionId='exp_mission_005', characterId='pl008'))), \
+                data=msgpack.packb(dict(trainingMissionId='exp_mission_005', characterId='pl010'))), \
                 patch.object(server, 'load_json', side_effect=load), \
                 patch.object(server, 'fill_episode_character_detail', return_value=deepcopy(detail)), \
                 patch.object(server, 'fill_episode_detail_by_episode_id', return_value=episode), \
@@ -67,17 +82,19 @@ class TrainingMissionTests(unittest.TestCase):
                 patch.object(server, 'installed_calculator', return_value=calculator):
             g.account_id = "test-account"
             result = msgpack.unpackb(server.level_up_camp_start(), raw=False)
+        self.assertEqual(result['CharacterDetail']['characters'], [dict(CharacterId='pl010')])
+        self.assertEqual(result['EpisodeDetail']['LayoutGroup']['CheckPoints'][0]['LoadPlayers'], ['pl010'])
         self.assertEqual(result['MissionDetail']['TrainingMissionId'], 'exp_mission_005')
         self.assertEqual(result['MissionDetail']['LocationId'], 'SCH01')
-        self.assertEqual(result['EpisodeDetail']['LayoutGroup']['CheckPoints'][0]['PartyPlayers'], ['pl008'])
+        self.assertEqual(result['EpisodeDetail']['LayoutGroup']['CheckPoints'][0]['PartyPlayers'], ['pl010'])
         self.assertEqual(result['CharacterDetail']['baseVisual']['characters'][0]['VisualEquipment'],
                          selected['VisualEquipment'])
         self.assertEqual(result['EpisodeDetailUser']['playCharacters'][0],
-                         dict(characterId='pl008', hp=9876, sp=0, level=17, exp=321))
+                         dict(characterId='pl010', hp=9876, sp=0, level=17, exp=321))
         self.assertEqual(detail, original)
 
     def test_finish_returns_existing_state_without_granting_experience(self):
-        characters = [dict(CharacterId='pl008', Level=17, Exp=321)]
+        characters = [dict(CharacterId='pl010', Level=17, Exp=321)]
         def load(path):
             if path.endswith('list.json'):
                 return dict(TrainingMissions=[dict(TrainingMissionId='exp_mission_005')])
@@ -86,12 +103,12 @@ class TrainingMissionTests(unittest.TestCase):
             return {}
         with server.app.test_request_context('/api/training-mission/retire', method='POST',
                 data=msgpack.packb(dict(trainingMissionId='exp_mission_005',
-                                       missionToken=mission_token('test-account', 'exp_mission_005', 'pl008')))), \
+                                       missionToken=mission_token('test-account', 'exp_mission_005', 'pl010')))), \
                 patch.object(server, 'load_json', side_effect=load), \
                 patch.object(server, 'reward_result', return_value={}):
             g.account_id = "test-account"
             result = msgpack.unpackb(server.level_up_camp_finish(), raw=False)
-        self.assertEqual(result['CharacterId'], 'pl008')
+        self.assertEqual(result['CharacterId'], 'pl010')
         self.assertEqual(result['AddExp'], 0)
         self.assertEqual(result['Result']['Characters'], characters)
 

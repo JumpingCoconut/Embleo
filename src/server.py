@@ -425,16 +425,17 @@ progress_type_dict = {
 
 
 def load_adapted_episode_scenario(episode_id):
-	if "sc" in episode_id:
-		return secret_mission_base_scenario
 	path = "./data/masterdata/scenario/{0}.json".format(episode_id)
 	if does_file_exist(path):
 		return load_json(path)
-	if episode_id in {"exp_mission_%03d" % index for index in range(1, 7)}:
-		from training_mission import checkpoint_scenario
-		checkpoints = load_json(episode_master_data_path_format.format(episode_id)
-			+ "EpisodeCheckPointMasterDataObject.json")
-		return checkpoint_scenario(checkpoints["Datas"])
+	if "sc" in episode_id or "exp" in episode_id:
+		if "sc" in episode_id:
+			return secret_mission_base_scenario
+		if episode_id in {"exp_mission_%03d" % index for index in range(1, 7)}:
+			from training_mission import checkpoint_scenario
+			checkpoints = load_json(episode_master_data_path_format.format(episode_id)
+				+ "EpisodeCheckPointMasterDataObject.json")
+			return checkpoint_scenario(checkpoints["Datas"])
 	return load_json(path)
 
 
@@ -982,6 +983,8 @@ def level_up_camp_start():
 	selected = next((row for row in characters if row["CharacterId"] == character_id), None)
 	if mission is None or selected is None:
 		raise AccountError("Training mission or owned character is unavailable.")
+	# Native camp startup builds its party from Characters, independently of checkpoints.
+	start_data["CharacterDetail"]["characters"] = [{"CharacterId": character_id}]
 	visual_id = character_id + "_training"
 	start_data["CharacterDetail"]["baseVisual"] = {
 		"settings": [{"ScenarioNo": 1, "Ids": [visual_id]}],
@@ -993,7 +996,7 @@ def level_up_camp_start():
 	start_data["EpisodeDetail"] = fill_episode_detail_by_episode_id(training_mission_id)
 	for checkpoint in start_data["EpisodeDetail"]["LayoutGroup"]["CheckPoints"]:
 		checkpoint["PartyPlayers"] = [character_id]
-		checkpoint["LoadPlayers"] = list(dict.fromkeys([*checkpoint["LoadPlayers"], character_id]))
+		checkpoint["LoadPlayers"] = [character_id]
 	calculator = installed_calculator(BASE_DIR / "data")
 	health = calculator.character(character_id, characters,
 		start_data["CharacterDetail"]["userEquipments"], top_add_characters())["Hp"]

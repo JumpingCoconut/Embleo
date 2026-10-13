@@ -22,6 +22,16 @@ checkpoint party is replaced with that selected character. The mission keeps the
 existing server's five-minute training settings and the selected stage identity.
 These paths use setup's normal installed data and need no Docker-specific files.
 
+Camp startup also builds its party directly from `CharacterDetail.Characters`:
+the native `SecretMissionManager.<RequestLvUpCampStartApi>d__172.MoveNext`
+(thunk RVA `0x1690E88`, body `0x2F62BCC`) selects each appearance's CharacterId
+into its party array at `0x2F637A4`–`0x2F638F0`; the selector at `0x2F5DF28`
+returns that ID. This list must contain only the selected character, rather than
+the entire character master list starting with Leo. Checkpoint `PartyPlayers`
+and `LoadPlayers` must also retain the selected character. Both scenario-list
+and scenario-group assembly use the shared `load_adapted_episode_scenario`
+helper, whose bootstrap condition handles `sc` and `exp` mission IDs.
+
 End and retire return current account state and zero added experience. Training
 playlog rewards and XP settlement remain unimplemented; these responses do not
 modify saves. The signed mission token binds the selected character to the
