@@ -42,7 +42,7 @@ from scripts.adapt.adapt_debug_episode_data import fill_episode_layout_group_by_
 
 pve_profile_diagnostics = Diagnostics("profile")
 
-DISABLE_LEVELUPCAMP = True
+DISABLE_LEVELUPCAMP = False
 DISABLE_EVENTS = True
 DISABLE_GACHA = True
 DISABLE_SHOP = True
@@ -424,6 +424,20 @@ progress_type_dict = {
 }
 
 
+def load_adapted_episode_scenario(episode_id):
+	if "sc" in episode_id:
+		return secret_mission_base_scenario
+	path = "./data/masterdata/scenario/{0}.json".format(episode_id)
+	if does_file_exist(path):
+		return load_json(path)
+	if episode_id in {"exp_mission_%03d" % index for index in range(1, 7)}:
+		from training_mission import checkpoint_scenario
+		checkpoints = load_json(episode_master_data_path_format.format(episode_id)
+			+ "EpisodeCheckPointMasterDataObject.json")
+		return checkpoint_scenario(checkpoints["Datas"])
+	return load_json(path)
+
+
 def fill_scenario_group_from_adapted_scenario(episode_id):
 	ScenarioGroup = {
 		"CheckPoints": [],
@@ -446,10 +460,7 @@ def fill_scenario_group_from_adapted_scenario(episode_id):
 		"MiniGames": []
 	}
 
-	if "sc" in episode_id:
-		adapted_episode_scenario = secret_mission_base_scenario
-	else:
-		adapted_episode_scenario = load_json("./data/masterdata/scenario/{0}.json".format(episode_id))
+	adapted_episode_scenario = load_adapted_episode_scenario(episode_id)
 
 	for entry in adapted_episode_scenario:
 		ProgressType = entry["ProgressType"]
@@ -576,10 +587,7 @@ skip_scenario = []
 def fill_scenario_list_from_adapted_scenario(episode_id):
 	scenarios = []
 
-	if "sc" in episode_id:
-		adapted_episode_scenario = secret_mission_base_scenario
-	else:
-		adapted_episode_scenario = load_json("./data/masterdata/scenario/{0}.json".format(episode_id))
+	adapted_episode_scenario = load_adapted_episode_scenario(episode_id)
 
 	for entry in adapted_episode_scenario:
 		new_scenario_entry = {
@@ -963,48 +971,39 @@ def level_up_camp_start():
 	start_data = load_json("./offline_responses/api/training-mission/start.json")
 
 	# Probably can be anything
-	start_data["MissionToken"] = training_mission_id
+	from training_mission import mission_token
+	start_data["MissionToken"] = mission_token(g.account_id, training_mission_id, character_id)
 
 	start_data["CharacterDetail"] = fill_episode_character_detail()
 
+	missions = load_json("./offline_responses/api/training-mission/list.json")["TrainingMissions"]
+	mission = next((row for row in missions if row["TrainingMissionId"] == training_mission_id), None)
+	characters = start_data["CharacterDetail"]["userCharacters"]
+	selected = next((row for row in characters if row["CharacterId"] == character_id), None)
+	if mission is None or selected is None:
+		raise AccountError("Training mission or owned character is unavailable.")
+	visual_id = character_id + "_training"
 	start_data["CharacterDetail"]["baseVisual"] = {
-		"settings": [{
-			"ScenarioNo": 1,
-			"Ids": [
-				"pl003_05_001"
-			]
-		}
-		],
-		"characters": [{
-			"VisualId": "pl003_05_001",
-			"CharacterId": "pl003",
-			"VisualEquipment": [
-				"pl003_05_001",
-				"wp001_04_001",
-				"",
-				"",
-				"",
-				""
-			]
-		}
-		]
+		"settings": [{"ScenarioNo": 1, "Ids": [visual_id]}],
+		"characters": [{"VisualId": visual_id, "CharacterId": character_id,
+			"VisualEquipment": selected["VisualEquipment"]}]
 	}
-
-	# Add character setting
-	# start_data["CharacterDetail"]["baseVisual"]["setting"] = {
-	# "ScenarioNo": 1,
-	# "Ids": [character_id + "_04_001"]
-	# }
 
 	# EpisodeDetail
 	start_data["EpisodeDetail"] = fill_episode_detail_by_episode_id(training_mission_id)
+	for checkpoint in start_data["EpisodeDetail"]["LayoutGroup"]["CheckPoints"]:
+		checkpoint["PartyPlayers"] = [character_id]
+		checkpoint["LoadPlayers"] = list(dict.fromkeys([*checkpoint["LoadPlayers"], character_id]))
+	calculator = installed_calculator(BASE_DIR / "data")
+	health = calculator.character(character_id, characters,
+		start_data["CharacterDetail"]["userEquipments"], top_add_characters())["Hp"]
 
 	# EpisodeDetailUser
 
 	start_data["EpisodeDetailUser"] = {
 		"status": 0,
 
-		"startScenarioNo": 0,
+		"startScenarioNo": start_data["EpisodeDetail"]["Scenarios"][0]["ScenarioNo"],
 		"revivalPointId": "",
 		"revivalScenarioNo": 0,
 
@@ -1017,10 +1016,10 @@ def level_up_camp_start():
 		},
 		"playCharacters": [{
 			"characterId": character_id,
-			"hp": 240,
-			"sp": 45,
-			"level": 1,
-			"exp": 0
+			"hp": health,
+			"sp": 0,
+			"level": selected["Level"],
+			"exp": selected["Exp"]
 		}
 		],
 		"drops": [],
@@ -1034,9 +1033,9 @@ def level_up_camp_start():
 
 	# MissionDetail
 	start_data["MissionDetail"] = {
-		"TrainingMissionId": "exp_mission_001",
+		"TrainingMissionId": training_mission_id,
 		"Category": 1,
-		"LocationId": "IC_VI01",
+		"LocationId": mission["LocationId"],
 		"Detail": {
 			"TimeLimit": 300,
 			"TimerCountType": 1,
@@ -1054,6 +1053,30 @@ def level_up_camp_start():
 	start_data["MasterGroup"] = fill_episode_master_group()
 
 	return pack_json_response(start_data)
+
+
+
+@app.route("/api/training-mission/end", methods=["GET", "POST"])
+@app.route("/api/training-mission/retire", methods=["GET", "POST"])
+def level_up_camp_finish():
+	request_data = msgpack.unpackb(request.data)
+	mission_id = request_data["trainingMissionId"]
+	token = request_data["missionToken"]
+	from training_mission import token_character
+	try:
+		character_id = token_character(token, g.account_id, mission_id)
+	except ValueError as error:
+		raise AccountError("Training mission token is unavailable.") from error
+	missions = load_json("./offline_responses/api/training-mission/list.json")["TrainingMissions"]
+	characters = load_json("./data/user/UserCharacter.json")
+	if (not any(row["TrainingMissionId"] == mission_id for row in missions)
+			or not any(row["CharacterId"] == character_id for row in characters)):
+		raise AccountError("Training mission or owned character is unavailable.")
+	# Playlog XP/rewards are not implemented. Return existing account state;
+	# repeated finish/retire never changes saves or grants guessed rewards.
+	return pack_json_response({"CharacterId": character_id, "AddExp": 0, "Result": {
+		"Parameter": load_json("./data/user/UserParameter.json"),
+		"Characters": characters, "Reward": reward_result()}})
 
 
 def reward_result(episode_id="", scenario_no=""):
