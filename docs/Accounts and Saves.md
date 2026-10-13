@@ -38,7 +38,7 @@ New accounts receive defaults from the existing game-data generators. Persisting
 
 ### Database schema and compatibility
 
-The current schema is version 4, stored in SQLite's `PRAGMA user_version`.
+The current schema is version 5, stored in SQLite's `PRAGMA user_version`.
 
 | Table | Contents and key |
 | --- | --- |
@@ -53,7 +53,11 @@ The current schema is version 4, stored in SQLite's `PRAGMA user_version`.
 
 Account references use foreign keys. Relationship pairs are unique, prohibit self-targeting and have reverse indexes for incoming lookups. Activity/history timestamps are Unix seconds.
 
-Unversioned databases and versions 1 through 3 are upgraded automatically in a transaction under a write lock. Existing accounts, saves, tokens, icons, recorded activity and relationships are preserved. Migration cannot reconstruct earlier logins or relationships from saved counters. Version 4 adds persistent messaging and guild tables described in [Multiplayer](Multiplayer.md). A newer unsupported schema is rejected without alteration; older servers cannot open version 4 databases.
+Unversioned databases and versions 1 through 4 are upgraded automatically in a transaction under a write lock. Existing accounts, saves, tokens, icons, recorded activity, relationships, messages, guilds and likes are preserved. Migration cannot reconstruct earlier logins or relationships from saved counters. Version 4 adds persistent messaging and guild tables; version 5 adds episode comments and their likes, described in [Multiplayer](Multiplayer.md). A newer unsupported schema is rejected without alteration; older servers cannot open version 5 databases. Back up the database before upgrading and retain a schema-5-compatible server for rollback.
+
+When loading explicit raid operator configuration, the process migrates an
+existing account database before running that configuration's read-only schema
+guards. Missing databases are not created by this startup step.
 
 ### Administrative editing
 

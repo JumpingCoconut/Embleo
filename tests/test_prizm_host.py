@@ -7,17 +7,45 @@ import ssl
 import socket
 import subprocess
 import tempfile
+import sqlite3
 import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'src'))
-from prizm_host import RuntimeHost, run_http, configured_runtime_ready
+from prizm_host import RuntimeHost, run_http, configured_runtime_ready, load_operator_config
 from prizm_control import RoomControl
 from prizm_runtime import Runtime
 
 
 class HostTests(unittest.TestCase):
+    def test_existing_accounts_migrate_before_readonly_operator_configuration(self):
+        from flask import Flask
+        from accounts import INITIAL_SCHEMA, ACTIVITY_SCHEMA, SOCIAL_SCHEMA, SCHEMA_VERSION
+        from multiplayer import MULTIPLAYER_SCHEMA
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / 'accounts.db'
+            connection = sqlite3.connect(database)
+            connection.executescript(INITIAL_SCHEMA + ACTIVITY_SCHEMA + SOCIAL_SCHEMA + MULTIPLAYER_SCHEMA)
+            connection.execute("INSERT INTO accounts VALUES ('a','code-a',123)")
+            connection.execute('PRAGMA user_version=4')
+            connection.commit()
+            connection.close()
+            configuration = Path(directory) / 'config.py'
+            configuration.write_text('''from pathlib import Path
+import sqlite3
+from contextlib import closing
+from accounts import SCHEMA_VERSION
+with closing(sqlite3.connect((Path(__file__).parent / 'accounts.db').as_uri() + '?mode=ro', uri=True)) as db:
+    CONFIGURED_SCHEMA = db.execute('PRAGMA user_version').fetchone()[0]
+    assert CONFIGURED_SCHEMA == SCHEMA_VERSION
+    assert db.execute('SELECT id FROM accounts').fetchall() == [('a',)]
+''',encoding='utf-8')
+            app = Flask(__name__)
+            app.config['ACCOUNT_DB'] = str(database)
+            load_operator_config(app,configuration)
+            self.assertEqual(app.config['CONFIGURED_SCHEMA'],SCHEMA_VERSION)
+
     def test_health_round_trip_checks_listener_cleanup_and_control(self):
         class Listener:
             sockets = [object()]

@@ -139,6 +139,15 @@ def load_operator_config(app, path=None):
     """Load explicit private configuration; never start a listener."""
     path = path if path is not None else os.environ.get('EMBLEO_PVE_CONFIG')
     if path:
+        # Installed configuration may use read-only schema guards/providers.
+        # Upgrade existing account storage before those guards execute, rather
+        # than waiting for the first HTTP request after listener startup.
+        database = app.config.get('ACCOUNT_DB')
+        if database is not None and Path(database).is_file():
+            from accounts import AccountStore
+            from contextlib import closing
+            with closing(AccountStore(database)):
+                pass
         app.config.from_pyfile(str(Path(path).resolve()))
 
 

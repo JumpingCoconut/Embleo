@@ -29,6 +29,7 @@ from flask import Flask, Response, g, has_request_context, request, url_for
 from accounts import AccountError, AccountStore, decode_icon, default_saves, save_key
 from profiles import add_all_emblems, noble_dates, utc_date
 from multiplayer import SocialStore, register_multiplayer
+from profile_power import installed_calculator, total_power
 from health import database_ready
 from prizm_host import configured_runtime_ready
 from prizm_diagnostics import Diagnostics
@@ -2014,6 +2015,20 @@ def other_user_info():
 	return pack_json_response({"UserViews": views})
 
 
+def account_power(account_id):
+	cache = getattr(g,'profile_power_cache',None)
+	if cache is None:
+		cache = g.profile_power_cache = {}
+	if account_id in cache:
+		return cache[account_id]
+	try:
+		calculator = installed_calculator(BASE_DIR / 'data')
+	except (OSError, ValueError, KeyError, TypeError) as error:
+		raise AccountError('Account combat power is unavailable.') from error
+	cache[account_id] = total_power(calculator,g.account_store,account_id,top_add_characters())
+	return cache[account_id]
+
+
 def user_view(account_id, character_id=None):
 	user = g.account_store.read(account_id, "User.json")
 	parameter = g.account_store.read(account_id, "UserParameter.json")
@@ -2046,13 +2061,19 @@ def user_view(account_id, character_id=None):
 	noble_start, noble_end = noble_dates()
 	social = SocialStore(g.account_store, g.account_id)
 	last_message, unread = social.direct_state(account_id)
+	try:
+		profile_power = account_power(account_id)
+	except AccountError:
+		# Profiles remain readable on minimal installs; recruitment gates fail
+		# explicitly through account_power instead of accepting this fallback.
+		profile_power = 0
 	return {"UserId": user["id"], "Name": user["name"],
 		"CharacterId": character_id,
 		"UserCharacter": character,
 		"UserEquipment": equipment, "UserItem": items, "EmblemId": parameter.get("EmblemId", ""),
 		"GuildName": social.guild_name(account_id), "Comment": parameter.get("Word", ""),
 		"IsLogin": account_id == g.account_id or is_online, "LastLoginAt": utc_date(last_login),
-		"TotalPower": 0, "MissionRank": parameter.get("MissionRank", 1), "EventScore": 0,
+		"TotalPower": profile_power, "MissionRank": parameter.get("MissionRank", 1), "EventScore": 0,
 		**g.account_store.relationship_flags(g.account_id, account_id),
 		"LastMessage": last_message, "IsNewMessage": unread,
 		"NobleStartAt": utc_date(noble_start), "NobleEndAt": utc_date(noble_end),
@@ -2134,7 +2155,7 @@ def public_scheme():
 	return "https" if request.headers.get("X-Forwarded-Proto") == "https" else request.scheme
 
 
-register_multiplayer(app, request_object, pack_json_response, user_view, account_error_response)
+register_multiplayer(app, request_object, pack_json_response, user_view, account_error_response, account_power)
 
 
 # Catch-all for any path

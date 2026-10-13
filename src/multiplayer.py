@@ -126,10 +126,11 @@ def posted_time(db):
 
 
 class SocialStore:
-    def __init__(self, store, account):
+    def __init__(self, store, account, power_provider=None):
         self.store = store
         self.db = store.connection
         self.account = account
+        self.power_provider = power_provider
 
     def target(self, value, allow_self=False):
         target = self.store.find_account(text(value, "player identifier", 64))
@@ -198,8 +199,9 @@ class SocialStore:
         cutoff = time.time() - 60
         count = self.db.execute("""SELECT SUM(value) FROM (
             SELECT COUNT(*) AS value FROM direct_messages WHERE sender=? AND posted>?
-            UNION ALL SELECT COUNT(*) AS value FROM guild_messages WHERE sender=? AND posted>?)""",
-            (self.account,cutoff,self.account,cutoff)).fetchone()[0]
+            UNION ALL SELECT COUNT(*) AS value FROM guild_messages WHERE sender=? AND posted>?
+            UNION ALL SELECT COUNT(*) AS value FROM episode_comments WHERE author=? AND posted>?)""",
+            (self.account,cutoff,self.account,cutoff,self.account,cutoff)).fetchone()[0]
         if count >= 30:
             raise AccountError("Message limit reached. Try again in a minute.")
 
@@ -213,7 +215,10 @@ class SocialStore:
         self.destination(target)
         self.db.execute("INSERT OR IGNORE INTO message_destinations(owner,target) VALUES (?,?)",
                         (target,self.account))
-        return {"Messages": [self.direct_view(row) for row in self.direct_rows(target)]}
+        rows = self.direct_rows(target)
+        self.db.execute("UPDATE message_destinations SET read_seq=MAX(read_seq,?) WHERE owner=? AND target=?",
+                        (rows[-1][0],self.account,target))
+        return {"Messages": [self.direct_view(row) for row in rows]}
 
     def membership(self, account=None):
         return self.db.execute("SELECT guild,officer,joined FROM guild_members WHERE account=?",
@@ -317,12 +322,21 @@ class SocialStore:
                 ("Recruitment","Recruitment",2,1), ("Mood","Mood",5,0),
                 ("Cadence","Cadence",1,0), ("MinPower","MinimumPower",2**31-1,0)):
             if key in data or previous is None:
-                result[field] = integer(data.get(key,default), key, 0, maximum)
-        # Combat power is not currently computed by profile handlers. Do not
-        # promise power-gated membership until its authoritative calculation exists.
+                result[field] = integer(data.get(key,default), key, -1 if key == "MinPower" else 0, maximum)
         if result["MinimumPower"] > 0:
-            raise AccountError("Power-gated guild recruitment is not implemented.")
+            if self.power_provider is None:
+                raise AccountError("Account combat power is unavailable.")
+            self.power_provider(self.account)
         return result
+
+    def require_power(self, gid, account):
+        minimum = json.loads(self.guild_record(gid)[1])["MinimumPower"]
+        if minimum > 0:
+            if self.power_provider is None:
+                raise AccountError("Account combat power is unavailable.")
+            power = integer(self.power_provider(account),"account combat power",0,2**31-1)
+            if power < minimum:
+                raise AccountError("Guild minimum power is not met.")
 
     def create_guild(self, data):
         if self.membership() or self.db.execute(
@@ -353,6 +367,7 @@ class SocialStore:
                 raise AccountError("Guild is not accepting this player.")
             if len(self.member_ids(gid)) >= 24:
                 raise AccountError("Guild is full.")
+            self.require_power(gid,self.account)
             if settings["Recruitment"] == 2:
                 self.add_member(gid,self.account)
             else:
@@ -362,6 +377,7 @@ class SocialStore:
                 "Guild": self.guild_view(gid), "Members": [user_view(a) for a in self.member_ids(gid)]}
 
     def add_member(self, gid, account):
+        self.require_power(gid,account)
         if self.membership(account) or len(self.member_ids(gid)) >= 24:
             raise AccountError("Player already joined a guild or guild is full.")
         if self.db.execute("SELECT 1 FROM guild_blocks WHERE guild=? AND account=?", (gid,account)).fetchone():
@@ -388,7 +404,9 @@ class SocialStore:
         seq,mid,sender,body,cdata,posted = row
         count,liked = self.db.execute("""SELECT COUNT(*),COALESCE(MAX(account=?),0)
             FROM guild_message_likes WHERE message=?""",(self.account,mid)).fetchone()
-        return {"GuildMessageId": mid, "Type": 1, "UserId": sender,
+        # Native GuildMessage2chatUtilityMessageBody treats Type=0 as player
+        # chat; nonzero types take the system/history formatting path.
+        return {"GuildMessageId": mid, "Type": 0, "UserId": sender,
                 "IsGuest": False, "Message": body, "Cdata": cdata,
                 "PostedAt": utc_date(posted), "History": 0, "PhData": [], "Info": [],
                 "Like": count, "IsLiked": bool(liked)}
@@ -409,7 +427,7 @@ class SocialStore:
             LIMIT 1""", (self.account,self.account,self.account,self.account)).fetchone())
 
 
-def register_multiplayer(app, request_object, pack, user_view, error_response):
+def register_multiplayer(app, request_object, pack, user_view, error_response, power_provider=None):
     raw_request_object = request_object
 
     def normalize_fields(fields):
@@ -429,8 +447,11 @@ def register_multiplayer(app, request_object, pack, user_view, error_response):
     def request_object():
         return normalize_fields(raw_request_object())
 
+    from episode_comments import register_episode_comments
+    register_episode_comments(app,request_object,pack,user_view,error_response)
+
     def social():
-        return SocialStore(g.account_store,g.account_id)
+        return SocialStore(g.account_store,g.account_id,power_provider)
 
     def payload():
         # Existing read APIs accept GET as well as MessagePack POST.
@@ -478,19 +499,23 @@ def register_multiplayer(app, request_object, pack, user_view, error_response):
     @app.route("/api/message/like", methods=["POST"])
     def message_like():
         store,data = social(),request_object()
-        target = store.message_target(data.get("TargetUserId"))
+        target = store.target(data.get("TargetUserId"),allow_self=True)
         mid = text(data.get("MessageId"),"message identifier",64)
         like = boolean(data.get("Like"),"like flag")
-        row = store.db.execute("""SELECT seq,id,sender,type,body,posted FROM direct_messages
-            WHERE id=? AND ((sender=? AND recipient=?) OR (sender=? AND recipient=?))""",
-            (mid,g.account_id,target,target,g.account_id)).fetchone()
-        if not row:
+        row = store.db.execute("""SELECT seq,id,sender,type,body,posted,recipient FROM direct_messages
+            WHERE id=? AND (sender=? OR recipient=?)""",
+            (mid,g.account_id,g.account_id)).fetchone()
+        if not row or target not in (row[2],row[6]):
             raise AccountError("Unknown conversation message.")
+        # Native chat passes the message author's ID, including the caller's
+        # own ID on an outgoing message. Derive the peer from the stored row.
+        peer = row[6] if row[2] == g.account_id else row[2]
+        store.message_target(peer)
         if like:
             store.db.execute("INSERT OR IGNORE INTO direct_message_likes VALUES (?,?)",(mid,g.account_id))
         else:
             store.db.execute("DELETE FROM direct_message_likes WHERE message=? AND account=?",(mid,g.account_id))
-        return pack({"Message": store.direct_view(row)})
+        return pack({"Message": store.direct_view(row[:6])})
 
     @app.route("/api/guild/top", methods=["GET","POST"])
     def persistent_guild_top():

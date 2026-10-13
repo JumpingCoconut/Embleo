@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import test_accounts as account_tests
 from accounts import AccountStore, INITIAL_SCHEMA, ACTIVITY_SCHEMA, SOCIAL_SCHEMA, SCHEMA_VERSION
-from multiplayer import SocialStore
+from multiplayer import SocialStore, MULTIPLAYER_SCHEMA
 import server
 
 
@@ -41,6 +41,103 @@ class MultiplayerTests(unittest.TestCase):
 
     def view(self,target,token=None):
         return self.call("user/other-user-info",{"userIdInfo": [target]},token)["UserViews"][0]
+
+    def test_native_outgoing_message_like_uses_author_and_remains_scoped(self):
+        mid = self.send()['Messages'][0]['MessageId']
+        data = dict(targetUserId=self.alice['id'],messageId=mid,like=True)
+        for _ in range(2):
+            message = self.call('message/like',data)['Message']
+            self.assertTrue(message['IsLike'])
+            self.assertEqual(message['LikeCount'],1)
+        self.assertEqual(self.post('/api/message/like',data,self.ct).status_code,400)
+        self.assertEqual(self.post('/api/message/like',dict(data,targetUserId=self.celia['id']),self.at).status_code,400)
+        self.assertEqual(self.call('message/list',{'targetUserId':self.bob['id']})['Messages'][0]['LikeCount'],1)
+        self.call('message/like',dict(data,like=False))
+        self.assertFalse(self.call('message/list',{'targetUserId':self.bob['id']})['Messages'][0]['IsLike'])
+        self.call('friend/block',{'targetUserIds':[self.bob['id']]})
+        self.assertEqual(self.post('/api/message/like',data,self.at).status_code,400)
+
+    def test_episode_comments_likes_persist_and_delete_is_author_only(self):
+        comment = self.call('episode/comment',{'episodeId':'ep','comment':'Hello'})['Comment']
+        mid = comment['UserEpisodeCommentId']
+        self.assertTrue(comment['IsOwn'])
+        data = dict(episodeCommentId=mid,like=True)
+        for _ in range(2):
+            liked = self.call('episode/like-comment',data,self.bt)['Comment']
+            self.assertEqual(liked['LikeCount'],1)
+            self.assertTrue(liked['IsLike'])
+            self.assertFalse(liked['IsOwn'])
+        own = self.call('episode/comment-list',{'episodeId':'ep'})['Comments'][0]
+        self.assertEqual(own['LikeCount'],1)
+        self.assertFalse(own['IsLike'])
+        self.assertEqual(self.call('episode/comment-list',{'episodeId':'other'})['Comments'],[])
+        self.assertEqual(self.post('/api/episode/delete-comment',data,self.bt).status_code,400)
+        self.call('episode/like-comment',dict(data,like=False),self.bt)
+        self.call('friend/block',{'targetUserIds':[self.bob['id']]})
+        self.assertEqual(self.call('episode/comment-list',{'episodeId':'ep'},self.bt)['Comments'],[])
+        self.assertEqual(self.post('/api/episode/like-comment',data,self.bt).status_code,400)
+        self.call('episode/delete-comment',{'episodeCommentId':mid})
+        self.assertEqual(self.call('episode/comment-list',{'episodeId':'ep'})['Comments'],[])
+        with closing(AccountStore(self.db)) as store:
+            self.assertEqual(store.connection.execute('SELECT COUNT(*) FROM episode_comment_likes').fetchone()[0],0)
+
+    def test_comment_mutations_require_auth_post_and_valid_native_fields(self):
+        for action in ('comment','like-comment','delete-comment','comment-list'):
+            path = '/api/episode/' + action
+            self.assertEqual(self.post(path).status_code,401)
+            self.assertEqual(self.client.get(path,headers={'Authorization':self.at}).status_code,405)
+        for data in ({'episodeId':'ep','comment':''},{'episodeId':'ep','comment':'x'*141},
+                     {'episodeId':'ep','EpisodeId':'other','comment':'Hello'}):
+            self.assertEqual(self.post('/api/episode/comment',data,self.at).status_code,400)
+
+    def test_native_guild_any_power_setting_round_trips(self):
+        guild = self.call('guild/create',{'name':'Any','minPower':-1,'recruitment':2})['Guild']
+        self.assertEqual(guild['MinimumPower'],-1)
+        self.assertEqual(self.call('guild/search',{'minPower':-1})['Guilds'][0]['GuildId'],guild['GuildId'])
+        self.join(guild)
+        self.assertEqual(self.call('guild/top',token=self.bt)['Guild']['MemberCount'],2)
+
+    def test_guild_chat_is_native_player_message_and_reply_clears_direct_badge(self):
+        guild = self.create()
+        self.join(guild)
+        message = self.message(guild)['Messages'][0]
+        self.assertEqual(message['Type'],0)
+        self.send()
+        self.assertTrue(self.view(self.alice['id'],self.bt)['IsNewMessage'])
+        self.send('Reply',token=self.bt,target=self.alice['id'])
+        self.assertFalse(self.view(self.alice['id'],self.bt)['IsNewMessage'])
+
+    def test_guild_power_gate_is_authoritative_and_rechecked_on_approval(self):
+        powers = {self.alice['id']:300,self.bob['id']:100,self.celia['id']:200}
+        with patch('server.installed_calculator',return_value=object()), \
+                patch('server.total_power',side_effect=lambda calculator,store,account,ordering:powers[account]):
+            guild = self.call('guild/create',{'name':'Gated','recruitment':1,'minPower':150})['Guild']
+            self.assertEqual(self.view(self.bob['id'])['TotalPower'],100)
+            self.assertEqual(self.post('/api/guild/join-apply',{'guildId':guild['GuildId']},self.bt).status_code,400)
+            self.join(guild,self.ct)
+            powers[self.celia['id']] = 149
+            data = {'targetUserId':[self.celia['id']],'isAccept':True}
+            self.assertEqual(self.post('/api/guild/join-approve',data,self.at).status_code,400)
+            self.assertEqual(len(self.call('guild/top')['Applications']),1)
+            powers[self.celia['id']] = 150
+            self.call('guild/join-approve',data)
+            self.assertEqual(self.call('guild/top')['Guild']['MemberCount'],2)
+            self.call('guild/update',{'recruitment':2})
+            powers[self.bob['id']] = 150
+            self.join(guild,self.bt)
+            self.assertEqual(self.call('guild/top')['Guild']['MemberCount'],3)
+
+    def test_unavailable_guild_power_does_not_admit_or_change_settings(self):
+        guild = self.create()
+        with patch('server.installed_calculator',side_effect=FileNotFoundError):
+            self.assertEqual(self.view(self.bob['id'])['TotalPower'],0)
+            self.assertEqual(self.post('/api/guild/update',{'minPower':100,'name':'Changed'},self.at).status_code,400)
+            self.assertEqual(self.call('guild/top')['Guild']['Name'],'Friends')
+        with patch('server.installed_calculator',return_value=object()), patch('server.total_power',return_value=100):
+            self.call('guild/update',{'minPower':100})
+        with patch('server.installed_calculator',side_effect=FileNotFoundError):
+            self.assertEqual(self.post('/api/guild/join-apply',{'guildId':guild['GuildId']},self.bt).status_code,400)
+            self.assertEqual(self.call('guild/top')['Guild']['MemberCount'],1)
 
     def test_configured_event_refresh_is_authenticated_and_account_scoped(self):
         from pve_publication import EventPublication
@@ -428,12 +525,12 @@ class MultiplayerTests(unittest.TestCase):
         self.assertEqual(self.call("pve/get-recently-matching"),{"Users": []})
 
     def test_invalid_guild_inputs_do_not_create_or_change_state(self):
-        for data in ({"name": ""},{"name": "x"*33},{"name": "Good","minPower": 500},
+        for data in ({"name": ""},{"name": "x"*33},{"name": "Good","minPower": -2},
                      {"name": "Good","recruitment": -1},{"name": "Good","mood": True}):
             self.assertEqual(self.post("/api/guild/create",data,self.at).status_code,400)
         self.assertIsNone(self.call("guild/top")["Guild"])
         guild = self.create()
-        self.assertEqual(self.post("/api/guild/update",{"name": "Changed","minPower": 1},self.at).status_code,400)
+        self.assertEqual(self.post("/api/guild/update",{"name": "Changed","minPower": True},self.at).status_code,400)
         self.assertEqual(self.call("guild/top")["Guild"]["Name"],"Friends")
         for data in ({"guildId": guild["GuildId"],"count": 0},
                      {"guildId": guild["GuildId"],"startDate": "bad"}):
@@ -496,12 +593,14 @@ class MultiplayerTests(unittest.TestCase):
     def test_post_limit_is_shared_between_direct_and_guild_chat(self):
         guild = self.create()
         with patch("multiplayer.time.time",return_value=1800000000):
-            for _ in range(29):
+            for _ in range(28):
                 self.send()
             self.message(guild)
+            self.call('episode/comment',{'episodeId':'ep','comment':'Discussion'})
             failed = self.post("/api/message/post",{"targetUserId": self.bob["id"],
                                "type": 1,"message": "Too many"},self.at)
             self.assertEqual(failed.status_code,400)
+            self.assertEqual(self.post('/api/episode/comment',{'episodeId':'ep','comment':'Too many'},self.at).status_code,400)
         with patch("multiplayer.time.time",return_value=1800000061):
             self.send("Allowed again")
 
@@ -518,6 +617,30 @@ class MultiplayerTests(unittest.TestCase):
 
 class MultiplayerMigrationTests(unittest.TestCase):
     setUp = account_tests.AccountTests.setUp
+
+    def test_v4_upgrade_preserves_messages_guilds_likes_and_rolls_back_failure(self):
+        with closing(sqlite3.connect(self.db)) as db:
+            db.executescript(INITIAL_SCHEMA + ACTIVITY_SCHEMA + SOCIAL_SCHEMA + MULTIPLAYER_SCHEMA)
+            db.execute("INSERT INTO accounts VALUES ('a','code-a',123)")
+            db.execute("INSERT INTO accounts VALUES ('b','code-b',124)")
+            db.execute("INSERT INTO direct_messages(id,sender,recipient,type,body,posted) VALUES ('m','a','b',1,'Hi',123)")
+            db.execute("INSERT INTO direct_message_likes VALUES ('m','b')")
+            db.execute("INSERT INTO guilds VALUES ('g','short','a','{}',123)")
+            db.execute("INSERT INTO guild_members(account,guild,joined) VALUES ('a','g',123)")
+            db.execute("INSERT INTO guild_messages(id,guild,sender,body,cdata,posted) VALUES ('gm','g','a','Hello','',123)")
+            db.execute("INSERT INTO guild_message_likes VALUES ('gm','a')")
+            db.execute('PRAGMA user_version=4')
+            db.commit()
+            original = [line for line in db.iterdump() if line.startswith('INSERT')]
+        with patch('episode_comments.COMMENT_SCHEMA','CREATE TABLE incomplete(id TEXT); invalid SQL;'):
+            with self.assertRaises(sqlite3.OperationalError): AccountStore(self.db)
+        with closing(sqlite3.connect(self.db)) as db:
+            self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0],4)
+            self.assertIsNone(db.execute("SELECT name FROM sqlite_master WHERE name='incomplete'").fetchone())
+            self.assertEqual([line for line in db.iterdump() if line.startswith('INSERT')],original)
+        with closing(AccountStore(self.db)) as store:
+            self.assertEqual(store.connection.execute('PRAGMA user_version').fetchone()[0],SCHEMA_VERSION)
+            self.assertEqual([line for line in store.connection.iterdump() if line.startswith('INSERT')],original)
 
     def test_v3_upgrade_keeps_accounts_relationships_and_unknown_save_fields(self):
         with closing(sqlite3.connect(self.db)) as db:

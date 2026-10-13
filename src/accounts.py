@@ -16,7 +16,7 @@ import zlib
 from pathlib import Path
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 INITIAL_SCHEMA = """
     CREATE TABLE IF NOT EXISTS accounts (
         id TEXT PRIMARY KEY, player_code TEXT UNIQUE NOT NULL,
@@ -189,6 +189,12 @@ class AccountStore:
                     if statement.strip():
                         self.connection.execute(statement)
                 self.connection.execute("PRAGMA user_version=4")
+            if version < 5:
+                from episode_comments import COMMENT_SCHEMA
+                for statement in COMMENT_SCHEMA.split(";"):
+                    if statement.strip():
+                        self.connection.execute(statement)
+                self.connection.execute("PRAGMA user_version=5")
             self.connection.commit()
             self.connection.execute("BEGIN IMMEDIATE")
         except Exception:

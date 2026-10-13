@@ -7,11 +7,12 @@ request's `AccountStore` transaction; failures roll back the entire request.
 
 ## Storage and compatibility
 
-Account database schema 4 adds social tables without rewriting accounts,
+Account database schema 4 adds messaging/guild tables and schema 5 adds episode
+comments and their likes, without rewriting accounts,
 tokens, saves, activity or follow/block relationships. Direct messages and
 guilds are shared records in that same database, rather than per-user JSON
 fixtures. Multiple instances see them only when they use the same database.
-Older servers that support schema 3 reject this database after migration;
+Older servers that support schema 4 reject this database after migration;
 retain a compatible server when rolling back code. Follow the database backup
 instructions in [Accounts and Saves](Accounts%20and%20Saves.md).
 
@@ -29,11 +30,16 @@ Implemented `/api/message/` routes: `top`, `list`, `post`, `like`,
   pair's message ID does not grant access to it.
 - Text and stamp messages use types 1 and 2. System messages cannot be posted
   by players. Message bodies must be nonempty and at most 140 characters.
-  Direct and guild posting share a limit of 30 messages per account per minute.
+  Direct, guild and episode-comment posting share a limit of 30 posts per
+  account per minute.
 - `list` returns the latest 100 messages in chronological order and marks
   those messages read. Previous history remains stored; this request contract
   has no paging cursor.
 - Likes are unique per player and message and can be removed.
+  Native chat supplies the message author's ID as `TargetUserId`, including
+  the caller's own ID for outgoing messages. The server resolves the peer from
+  the stored message, verifies participation and enforces personal blocks.
+  Posting a reply marks the returned conversation messages read.
 - Sending registers the conversation for both participants. Removing a
   destination affects only the caller's destination list and preserves history.
 - Blocking in either direction prevents posting, reading and liking direct
@@ -45,6 +51,19 @@ Implemented `/api/message/` routes: `top`, `list`, `post`, `like`,
 Stamp bodies are retained identifiers; individual stamp ownership/unlock
 requirements are not enforced. Text uses an emulator limit of 140 characters;
 only the guild comment limit is established by the recovered client constant.
+
+## Episode comments
+
+`comment`, `comment-list`, `like-comment` and `delete-comment` under
+`/api/episode/` use authenticated POST requests and persistent shared records.
+Lists return the newest 100 comments for the requested episode, excluding
+personally blocked authors. Text is limited to 140 characters as emulator
+policy. Only the author can delete a comment; its likes are removed with it.
+Likes are unique per account/comment, support removal and are returned from
+the current viewer's perspective. The native response ID is
+`UserEpisodeCommentId`; like/delete requests use `EpisodeCommentId`.
+Episode identifiers are bounded strings; installed episode existence and
+completion eligibility are not enforced by discussion endpoints.
 
 ## Guilds
 
@@ -82,16 +101,40 @@ date cursors as `yyyy-MM-dd HH:mm:ss.ffffzzz`. Stored message times match that
 precision and advance on equal/backward clock readings. These are native-code
 findings, not Android playtest results.
 
+Player guild chat uses native `GuildMessage.Type=0`. Nonzero values enter the
+client's system/history formatting path, rather than ordinary player chat
+(`ChatUtility.GuildMessage2chatUtilityMessageBody`, RVA `0x34235B0`).
+
+Minimum power accepts the native `-1` (any) and `0` (none) sentinels. Positive
+gates use current server-calculated account total power both when applying and
+when being approved/admitted, in the membership transaction. Profile
+`TotalPower` adds the owned character powers, matching native
+`HomeSceneUtility.CharacterTotalPower` (`0x32EB530`), using the existing combat
+calculator and saved equipment. Missing/invalid combat data rejects gated
+operations; profiles remain readable with power zero. This fallback is never
+used to admit a player. `src/profile_power.py` owns the calculation.
+
 Guild level/experience/currency, guild missions, event scores, automatic
 leadership succession, system history messages and guild raid invitations are
-not implemented. Profile combat power is not calculated, so creating/updating
-a guild with a positive minimum-power gate is explicitly rejected. Name,
+not implemented. Name,
 description and notification limits are emulator policy where not established
 by a recovered client constant.
 
+Raid score settlement still requires verified event scoring rules. Native
+`PlayLogPve` contains resurrection count, damage percentage and damage rank,
+not an authoritative point total. The host's GameOver report contains member
+damage and boss recovery; its fourth field is **BossRecoveryTotal**, not a
+score. These reports do not establish base points, special-effect bonuses,
+guild contributions or ranking totals. The completion journal can atomically
+persist an explicit settlement policy, but the no-grants trial policy returns
+`RankingScore=None`. Do not reinterpret recovery/damage as official ranking
+points or grant rewards from the client checksum/playlog alone.
+
 ## Raids / co-op PvE
 
-Raids are not playable. The recovered client uses two separate layers:
+Raid support is developed in stages. Configured no-grants trials support
+native battles; production rewards and ranking remain incomplete. The
+recovered client uses two separate layers:
 
 1. `/api/pve/` HTTP calls for event data, room discovery, battle setup, result
    submission, rewards and rankings.
@@ -1458,7 +1501,7 @@ magic-decoy JSON shape, bounded by its original MaxHP, while freezing MaxHP,
 Base_LoadPath and AddPrefabInfos. Unknown parameter formats retain exact
 equality, and each resend still requires the spawn provider's authorization.
 
-`accounts.read_save_snapshot` opens an existing schema-4 database in SQLite
+`accounts.read_save_snapshot` opens an existing schema-5 database in SQLite
 read-only mode and reads the requested account saves in one transaction. It
 does not create or migrate databases. `SnapshotCombatStats.prepare` uses that
 boundary to detach character/equipment saves plus any explicitly requested
