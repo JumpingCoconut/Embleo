@@ -232,4 +232,20 @@ These values are a snapshot, not validation rules. Do not truncate or synthesize
 
 ## Adapter
 
-`src/scripts/adapt/master_data/sequence.py` writes `CharacterSequenceMasterData.json` and `EnemySequenceMasterData.json`. It emits one row per owner/category wrapper with `CharacterId` or `EnemyId`, `Category`, and `Data` (the original wrapper encoded as a JSON string). IDs containing `pl` are classified as characters; other IDs as enemies. Generated files under `src/data/` are ignored; make durable transformations in tracked adapter/server code and validate the decoded `Data` string afterward.
+`src/scripts/adapt/master_data/sequence.py` writes `CharacterSequenceMasterData.json` and `EnemySequenceMasterData.json`. It emits one row per owner/category with `CharacterId` or `EnemyId`, `Category`, and `Data` (a wrapper encoded as a JSON string). IDs containing `pl` are classified as characters; other IDs as enemies. Generated files under `src/data/` are ignored; make durable transformations in tracked adapter/server code and validate the decoded `Data` string afterward.
+
+## Costume Mystic Artes
+
+Debug sequences alone omit the combat payloads for equipment-specific Mystic Artes. Setup also downloads the sequence bundles under `characters/player/*/specialskill/*/specialskill@*`; animation-only bundles are not needed for master generation. `special_skill.py` uses UnityPy to follow each timeline's clip references and recover attack, movement, and update-parameter settings. The generated records retain the asset's `SpecialSkill@<spell-id>` name, which the native client uses as its combat lookup key. Equipment `SpellId` selects the sequence resource. Do not replace the generic `SpecialSkill1` entry with one costume's damage.
+
+Indices address master payloads, not timestamps. Preserve `ClipIndex`, sparse indices, nested projectile/summon settings, and the timeline's order. Repeated payloads at the same index keep the first occurrence, matching native `AttackSequenceData.AddClipData`; different payload families can share the same index. The shared hit settings retain the first occurrence. The manifest selects the installed bundle version, and missing bundles or unrecognized combat clips fail generation rather than silently producing incomplete damage data.
+
+After the bundles are installed, regenerate only sequence masters from `src/`:
+
+```powershell
+..\.venv\Scripts\python.exe -m scripts.adapt.master_data.sequence
+```
+
+`tests/test_special_skill.py` covers index handling, separate costume keys, multiple clip families, opt-in charging, and optional coverage of every locally installed special-skill bundle. Asset-level validation does not establish in-game damage, targeting, or co-op synchronization; those require playtests.
+
+For repeated local tests, set `INSTANT_MYSTIC_ARTES = True` beside `SKIP_BATTLES` in `server.py`, or start the server with `EMBLEO_INSTANT_MYSTIC_ARTES=1`. Either switch enables charging in both episodes and installed raids; an unset environment variable or `0` does not override a true source flag. `combat_debug.py` supplies an infinite startup DoT buff whose fixed negative SkillGauge amount refills the native 300-point gauge on its first tick and after use. It changes response masters only and preserves existing startup buffs and account saves. Set the source flag to false, disable the environment variable, and restart the server to restore ordinary charging. Native gauge handling supports the mechanism; timing and UI behavior still require a client playtest.

@@ -129,25 +129,25 @@ Recompute these checks after refreshing assets. The upstream dump may change and
 
 ## Adapter Output
 
-`adapt_debug_sequences_master_data` combines the top-level category lists and writes `CharacterSequenceMasterData.json` and `EnemySequenceMasterData.json`. It creates one adapted row per wrapper (normally one owner/category), not one row per `sequenceName`. Each row contains `CharacterId` or `EnemyId`, `Category`, and `Data`. `Data` is a JSON-encoded string containing the original category wrapper and its settings, rather than a normalized nested object. The adapter splits character from enemy records using the `id` substring check and sorts each output by owner ID.
+`adapt_debug_sequences_master_data` combines the top-level category lists and recovered costume sequences, then writes `CharacterSequenceMasterData.json` and `EnemySequenceMasterData.json`. It groups settings into one adapted row per owner/category, not one row per `sequenceName`. Each row contains `CharacterId` or `EnemyId`, `Category`, and `Data`. `Data` is a JSON-encoded string containing the category wrapper and its settings, rather than a normalized nested object. The adapter splits character from enemy records using the `id` substring check and sorts each output by owner ID.
 
-The current extraction produces 65 character rows and 14 enemy rows (79 wrappers total). These are useful smoke-check counts for this asset version only; they are not stable API contracts.
+The debug extraction alone contains 65 character wrappers and 14 enemy wrappers. Supplemented output also includes categories from costume sequences. Counts depend on the installed asset version and are not stable API contracts.
 
 The adapter makes several assumptions that matter when changing its code:
 
-- Every wrapper has at least one category key, and the selected category contains at least one setting. It indexes the first key and the first setting without validation.
-- The first setting's `id` determines the owner for the entire wrapper. All settings inside that wrapper are therefore assumed to belong to the same owner.
+- Each wrapper has one category key containing a list of settings. Empty lists are skipped.
+- Each setting's `id` determines its owner; settings are grouped by owner and category before serialization.
 - An `id` containing the substring `pl` is classified as a character; every other ID is classified as an enemy. This is a naming heuristic, not a lookup against character/enemy master data.
-- `Data` preserves the complete wrapper (including all settings), so changing its serialization shape changes the API's nested JSON string even though the outer adapted row is unchanged.
-- The adapter builds output paths by string concatenation. A direct call must pass an `output_folder` ending in a path separator; the normal master-data adapter supplies one.
+- `Data` preserves the setting payloads inside the combined category wrapper. Changing its serialization shape changes the API's nested JSON string even though the outer adapted row is unchanged.
+- The adapter uses `Path` objects for output paths; a trailing separator is unnecessary.
 
 ## Data Flow
 
 The runtime path is:
 
-1. `setup_server.py` extracts the Unity asset into `src/data/extract/masterdatadebug/SequenceMasterDataObject.json`.
+1. `setup_server.py` extracts the Unity debug asset into `src/data/extract/masterdatadebug/SequenceMasterDataObject.json` and downloads the costume-specific special-skill sequence bundles.
 2. `adapt_debug_master_data` calls `adapt_debug_sequences_master_data`.
-3. The adapter writes `src/data/masterdata/CharacterSequenceMasterData.json` and `src/data/masterdata/EnemySequenceMasterData.json`.
+3. The adapter supplements the debug records with combat payloads recovered from the special-skill bundles, then writes `src/data/masterdata/CharacterSequenceMasterData.json` and `src/data/masterdata/EnemySequenceMasterData.json`. See [Costume Mystic Artes](Sequence%20Master%20Data.md#costume-mystic-artes).
 4. `server.py` loads those files into `MasterGroup.characterSequences` and `MasterGroup.enemySequences`.
 5. The episode API returns `MasterGroup` to the existing game client.
 
@@ -170,8 +170,8 @@ All three data paths are under ignored `src/data/`. They are generated local dat
    )
    ```
 
-   The output path ends in a separator because the adapter concatenates filenames onto it.
+   The adapter infers the installed download folder from the debug input path. Pass `bundle_root` explicitly when testing a different layout.
 6. **Validate the output.** Parse both output files as JSON; check the expected owner and category; parse each row's `Data` string with `json.loads`; confirm the target `sequenceName` and nested values survived unchanged or changed as intended. Do not assert snapshot record counts as a permanent contract.
 7. **Validate the serving layer.** Confirm `MasterGroup.characterSequences` or `MasterGroup.enemySequences` contains the row in the API response. If the response is correct but behavior is not, investigate the existing client-consumed schema/semantics or other server data; do not assume changing another similarly named field will help.
 
-For a focused adapter test, call `adapt_debug_sequences_master_data` with a temporary output directory ending in a separator, then inspect the two generated files. Avoid rerunning the full asset download/extraction pipeline for an adapter-only change.
+For a focused adapter test, call `adapt_debug_sequences_master_data` with a temporary output directory, then inspect the two generated files. Avoid rerunning the full asset download/extraction pipeline for an adapter-only change.

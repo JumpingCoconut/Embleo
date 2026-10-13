@@ -50,7 +50,8 @@ DISABLE_CHALLENGE_MISSIONS = True
 
 DISABLE_SCENARIOS = False
 
-SKIP_BATTLES = True
+SKIP_BATTLES = False
+INSTANT_MYSTIC_ARTES = False
 SKIP_VIDEOS = False
 SKIP_ROUTE_FORK_MERGE = False
 
@@ -753,7 +754,8 @@ def fill_episode_master_group():
 
 	MasterGroup["buff"] = load_json("./data/masterdata/BuffMasterData.json")
 
-	return MasterGroup
+	from combat_debug import apply_instant_mystic_artes
+	return apply_instant_mystic_artes(MasterGroup, enabled=INSTANT_MYSTIC_ARTES)
 
 
 @app.route("/api/episode/preload", methods=["GET", "POST"])

@@ -102,6 +102,8 @@ def installed_battle_assembler(data_root, database, ordering, definitions,
     character_curves = load('TemporaryLevelStatusCurveCharacterMasterData.json')
     equipment_curves = load('TemporaryLevelStatusCurveEquipmentMasterData.json')
     buffs = load('BuffMasterData.json')
+    from combat_debug import apply_instant_mystic_artes
+    apply_instant_mystic_artes({'characters': characters, 'buff': buffs})
     calculator = CharacterCombatStats(characters, character_curves, equipment,
                                       equipment_curves, buffs)
     group = {key:[] for key in ('searchMoveArounds','characterLevelExp',

@@ -1,16 +1,22 @@
 import json
 from pathlib import Path
 
+from .special_skill import recover_special_skills
+
 
 def adapt_debug_sequence_list(sequence_list):
     adapted_sequence_list = []
 
-    for setting in sequence_list:
-        category = list(setting.keys())[0]
+    grouped = {}
+    for wrapper in sequence_list:
+        category = next(iter(wrapper))
+        for entry in wrapper[category]:
+            grouped.setdefault((entry['id'], category), []).append(entry)
+
+    for (ID, category), entries in grouped.items():
+        setting = {category: entries}
 
         new_seq = {}
-
-        ID = setting[category][0]["id"]
 
         if "pl" in ID:
             new_seq["CharacterId"] = ID
@@ -20,20 +26,15 @@ def adapt_debug_sequence_list(sequence_list):
         new_seq["Category"] = category
         new_seq["Data"] = json.dumps(setting)  # Born to be a JSON, forced to be a string
 
-        for individual_setting in setting[category]:
-            pass
-        
         adapted_sequence_list.append(new_seq)
 
     return adapted_sequence_list
 
 
-def adapt_debug_sequences_master_data(input_file_path, output_folder):
-    adapted_sequences = []
-
-    debug_seqs: list
-
-    with open(input_file_path, "r") as f:
+def adapt_debug_sequences_master_data(input_file_path, output_folder, bundle_root=None):
+    input_file_path = Path(input_file_path)
+    output_folder = Path(output_folder)
+    with input_file_path.open(encoding='utf-8') as f:
         debug_seqs = json.load(f)
 
     # In original file the sequences are grouped by type
@@ -42,9 +43,13 @@ def adapt_debug_sequences_master_data(input_file_path, output_folder):
     parameter_list = debug_seqs["updateParameterList"]
     # no_use = debug_seqs["noUse"]  # Well, we are using it, all right
 
-    adapted_sequences.extend(adapt_debug_sequence_list(attack_list))
-    adapted_sequences.extend(adapt_debug_sequence_list(move_list))
-    adapted_sequences.extend(adapt_debug_sequence_list(parameter_list))
+    # Debug masters omit equipment-specific timelines. Keep their asset names
+    # as lookup keys so swapping costumes selects the matching combat payload.
+    if bundle_root is None:
+        bundle_root = input_file_path.resolve().parents[2] / 'download'
+    adapted_sequences = adapt_debug_sequence_list([
+        *attack_list, *move_list, *parameter_list,
+        *recover_special_skills(bundle_root)])
 
     character_sequences = []
     enemy_sequences = []
@@ -67,4 +72,10 @@ def adapt_debug_sequences_master_data(input_file_path, output_folder):
 
 
 if __name__ == "__main__":
-    adapt_debug_sequences_master_data("./SequenceMasterDataObject.json", "./")
+    import argparse
+    parser = argparse.ArgumentParser(description='Regenerate combat sequence masters from installed assets')
+    parser.add_argument('--data-root', type=Path, default=Path('data'))
+    args = parser.parse_args()
+    adapt_debug_sequences_master_data(
+        args.data_root / 'extract/masterdatadebug/SequenceMasterDataObject.json',
+        args.data_root / 'masterdata', args.data_root / 'download')
