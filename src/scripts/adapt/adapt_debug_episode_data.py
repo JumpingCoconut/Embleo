@@ -122,7 +122,7 @@ def fill_episode_layout_group_by_episode_id(episode_id, *, data_root=None, layou
                 platoons_path = (Path(data_root or './data') /
                     'extract/masterdatadebug/PlatoonMasterDataObject.json')
                 LayoutGroup[group_name] = adapt_function(master_data,
-                    platoon_master_data=load_json(platoons_path))
+                    {entry["_id"]: entry for entry in load_json(platoons_path)["Datas"]})
             else:
                 LayoutGroup[group_name] = adapt_function(master_data)
 

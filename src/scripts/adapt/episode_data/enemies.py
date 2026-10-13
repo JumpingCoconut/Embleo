@@ -16,27 +16,56 @@ def SerVec3toVec3(SerializableVector3):
 
 	return vector_3
 
-def episode_enemy_individual_ids(master_data):
-	"""All placed, parent-child and generator individuals, in source order."""
-	ids = []
-	seen = set()
-	for entry in master_data["Datas"]:
-		candidates = [entry["_individualID"],
-			*entry["_childEnemyData"]["EnemyIds"],
-			entry["_summonEnemyData"]["EnemyId"]]
-		for individual_id in candidates:
-			if individual_id and individual_id not in seen:
-				seen.add(individual_id)
-				ids.append(individual_id)
-	return ids
 
-
-def adapt_episode_enemies_for_episode_layout(master_data, *, platoon_master_data=None):
-	enemies = []
+def generate_external_enemies(adapted_enemy):
 	external_enemies = []
-	used_ids = {entry["_id"] for entry in master_data["Datas"]}
-	formations = {entry["_id"]: entry
-		for entry in (platoon_master_data or {"Datas": []})["Datas"]}
+
+	external_enemy_individual_id_list = []
+
+	if adapted_enemy["RoleType"] == 2:  # Parent
+		external_enemy_individual_id_list = adapted_enemy["Child"]["Ids"]
+	elif adapted_enemy["RoleType"] == 3:  # Generator
+		external_enemy_individual_id_list.append(adapted_enemy["SummonRule"]["EpisodeEnemyId"])
+
+	for individual_id in external_enemy_individual_id_list:
+		# Must follow this naming scheme
+		external_id = "Ext.{}.{}".format(adapted_enemy["EpisodeEnemyId"], individual_id)
+
+		if individual_id == "":
+			print("Tried to generate an external enemy with no EnemyId", external_id)
+			continue
+
+		external_enemy = {
+			"EpisodeEnemyId": external_id,
+			"EnemyId": individual_id,
+			"RoleType": 1,  # Regular enemy
+			"Flags": adapted_enemy.get("Flags", 0) & 8,  # Inherit only the parent's wait state.
+
+			"AppearanceNum": 1,
+			"MaxAppearanceNum": 1,
+			"GroupId": adapted_enemy["GroupId"],
+
+			"AppearanceRule": {
+				"Type": 2,  # External
+				"Params": []
+			},
+			"Child": None,
+			"SummonRule": None,
+
+			"VisualId": "",
+			"SurviveId": "",
+			"PatrolPoints": [],
+			"PriorityPoint": "",
+			"ScenarioNo": adapted_enemy["ScenarioNo"]
+		}
+
+		external_enemies.append(external_enemy)
+
+	return external_enemies
+
+
+def adapt_episode_enemies_for_episode_layout(master_data, platoon_master_data):
+	enemies = []
 
 	# yeah, that's a lot of data
 	for entry in master_data["Datas"]:
@@ -71,17 +100,21 @@ def adapt_episode_enemies_for_episode_layout(master_data, *, platoon_master_data
 		}
 
 		# EpisodeEnemyChild
-		formation_id = entry["_childEnemyData"]["FormationId"]
-		formation = formations.get(formation_id)
-		if formation_id and formation is None:
-			raise ValueError("Unknown platoon formation {!r} for episode enemy {!r}".format(
-				formation_id, entry["_id"]))
 		layout_entry["Child"] = {
 			"Ids": entry["_childEnemyData"]["EnemyIds"],
-			"Formation": formation["Formation"] if formation else "",
-			"FormationPadding": SerVec2toVec2(formation["FormationPadding"])
-				if formation else [0, 0]
+			"Formation": "",
+			"FormationPadding": [0, 0]
 		}
+
+		formation_id = entry["_childEnemyData"]["FormationId"]
+
+		if formation_id != "":
+			platoon = platoon_master_data[formation_id]
+
+			print("Applied Formation", platoon["_id"], "to", entry["_id"])
+			layout_entry["Child"]["Formation"] = platoon["Formation"]
+			layout_entry["Child"]["FormationPadding"] = SerVec2toVec2(platoon["FormationPadding"])
+
 
 		# EpisodeEnemySummonRule
 		summon_data = entry["_summonEnemyData"]
@@ -103,34 +136,9 @@ def adapt_episode_enemies_for_episode_layout(master_data, *, platoon_master_data
 
 		enemies.append(layout_entry)
 
-		# Release clients do not run the debug-local external-definition builder.
-		# These definitions are looked up by child/summon creation, never placed.
-		targets = (entry["_childEnemyData"]["EnemyIds"] if entry["_enemyType"] == 1
-			else [entry["_summonEnemyData"]["EnemyId"]] if entry["_enemyType"] == 2
-			else [])
-		for individual_id in dict.fromkeys(targets):
-			if not individual_id:
-				continue
-			external_id = "Ext.{}.{}".format(entry["_id"], individual_id)
-			if external_id in used_ids:
-				raise ValueError("Duplicate external episode enemy {!r}".format(external_id))
-			used_ids.add(external_id)
-			external_enemies.append({
-				"EpisodeEnemyId": external_id,
-				"EnemyId": individual_id,
-				"RoleType": 1,
-				"Flags": layout_entry["Flags"] & 8,  # Inherit only the parent's wait state.
-				"AppearanceNum": 1,
-				"MaxAppearanceNum": 1,
-				"GroupId": entry["_groupID"],
-				"AppearanceRule": {"Type": 2, "Params": []},
-				"Child": None,
-				"SummonRule": None,
-				"VisualId": "",
-				"SurviveId": "",
-				"PatrolPoints": [],
-				"PriorityPoint": "",
-				"ScenarioNo": list(layout_entry["ScenarioNo"]),
-			})
+		# "External" enemies that are spawned by parent/generator enemies
+		if layout_entry["RoleType"] > 1:
+			external_enemies = generate_external_enemies(layout_entry)
+			enemies.extend(external_enemies)
 
-	return enemies + external_enemies
+	return enemies

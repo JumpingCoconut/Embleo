@@ -664,11 +664,44 @@ def fill_episode_detail_by_episode_id(episode_id):
 	return EpisodeDetail
 
 
+def get_all_enemy_individual_ids(enemy_master_data):
+	individual_id_list = set()  # Set for speed
+
+	for entry in enemy_master_data["Datas"]:
+		entry_ids = [entry["_individualID"],
+			*entry["_childEnemyData"]["EnemyIds"],
+			entry["_summonEnemyData"]["EnemyId"]]
+
+		for individual_id in entry_ids:
+			if (individual_id != "") and (individual_id not in individual_id_list):
+				individual_id_list.add(individual_id)
+
+	return list(individual_id_list)
+
+
+
 def fill_enemy_detail_by_episode_id(episode_id):
-	from scripts.adapt.episode_data.enemies import episode_enemy_individual_ids
-	episode_enemy_data = load_json(episode_master_data_path_format.format(episode_id) + "EpisodeEnemyMasterDataObject.json")
-	return {"Enemies": [{"EnemyId": individual_id}
-		for individual_id in episode_enemy_individual_ids(episode_enemy_data)]}
+	enemy_detail = {
+		"Enemies": []
+	}
+
+	episode_enemy_data = load_json(
+		episode_master_data_path_format.format(episode_id) + "EpisodeEnemyMasterDataObject.json")
+
+	individual_enemy_ids = get_all_enemy_individual_ids(episode_enemy_data)
+
+	for individual_id in individual_enemy_ids:
+		new_entry = {
+			"EnemyId": individual_id
+		}
+
+		if new_entry not in enemy_detail["Enemies"]:
+			enemy_detail["Enemies"].append(new_entry)
+
+	# print("Enemy count", enemy_detail)
+
+	return enemy_detail
+
 
 
 def fill_episode_master_group():

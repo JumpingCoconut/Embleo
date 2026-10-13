@@ -16,7 +16,7 @@ The child/summon references remain enemy individual IDs. A separate network enem
 
 `Ext.<parent EpisodeEnemyId>.<enemy individual ID>`
 
-For example, the first barracks uses `Ext.EM_CP01_001-Barracks01.em0023_001_02`. The external row has `EnemyId = em0023_001_02`, network normal role `1`, appearance type `External = 2`, and appearance count `1`. It inherits the parent's group and scenario interval; its child and summon definitions are null. The adapter emits these records after placed definitions, deduplicates repeated target IDs within each parent, and rejects collisions with existing episode IDs.
+For example, the first barracks uses `Ext.EM_CP01_001-Barracks01.em0023_001_02`. The external row has `EnemyId = em0023_001_02`, network normal role `1`, appearance type `External = 2`, and appearance count `1`. It inherits the parent's group and scenario interval; its child and summon definitions are null. The adapter uses upstream commit `73ef88f`'s implementation and emits external definitions immediately after each parent or generator. It does not deduplicate repeated targets or reject collisions with placed episode IDs.
 
 These are lookup definitions, not permanent standalone placements. Parent formation cells and the generator's count/position rules still control when and where children appear. The runtime constructs the same `Ext.` key and finds its corresponding construction data before creating a child. This is why a valid `SummonRule` and globally published individual master can still produce no soldiers when the external row is missing.
 
@@ -40,7 +40,7 @@ The extracted child definition contains a **lookup key**, for example `Formation
 
 `src/data/extract/masterdatadebug/PlatoonMasterDataObject.json`
 
-That file contains `Datas` rows with `_id`, `Formation`, and `FormationPadding`. The former adapter sent the lookup key directly as `Child.Formation` and omitted `Child.FormationPadding`. The corrected adapter resolves the platoon from the installed master data before publishing both fields. A missing referenced formation raises a descriptive error instead of silently publishing an unusable lookup key.
+That file contains `Datas` rows with `_id`, `Formation`, and `FormationPadding`. The former adapter sent the lookup key directly as `Child.Formation` and omitted `Child.FormationPadding`. The corrected adapter resolves the platoon from the installed master data before publishing both fields. The layout loader indexes the installed platoon rows by `_id` before passing them to the upstream enemy adapter. A missing referenced formation raises `KeyError`.
 
 Those fields have different meanings. In the network-data path, `EpisodeEnemyInfo.Setup` copies `Child.Formation` into the runtime formation contents. `ChildEnemyData.GetFormationData` splits those contents into rows, splits each row on commas, and attempts to parse each occupied cell as an integer. A string such as `"3_1"` is not a formation grid and produces no valid numbered cells.
 
@@ -98,6 +98,10 @@ Native ARM64 reference points (build-specific RVAs):
 | `EnemyManager.CreateEnemySummon` | `0x17D7F78` | Starts the initial summon count through `CreateEnemyForSummon` |
 | `EnemyManager.CreateEnemyForSummon` | `0x17D5C54` | Client summon creation path |
 
-The C# dumps supply type contracts and method addresses; the parsing, lookup, and initial-summon observations above were checked against native instructions. Actual in-game child spawning after the external-definition correction remains unverified; field-level and native call-chain evidence do not substitute for a gameplay check.
+The C# dumps supply type contracts and method addresses; the parsing, lookup, and initial-summon observations above were checked against native instructions. The earlier development correction was confirmed by a phone playtest at Bastien's first house. Field-level comparisons do not establish gameplay correctness for every generator or resumed checkpoint.
 
 Focused checks: `python -m unittest discover -s tests -p test_episode_enemies.py`. Set `EMBLEO_TEST_RAID_DATA` to the installed data directory to include Bastien-specific formation, summon-count and target-dependency checks. The fixture checks do not include extracted game data.
+
+## Shared upstream conversion and raid data selection
+
+Enemy conversion and episode enemy-detail collection follow upstream `main`. The development layout loader retains `data_root`, `layout_id`, and `location_episode_id` so raids can select installed data, layout definitions, and map locations independently. These arguments select inputs; they do not change enemy conversion.

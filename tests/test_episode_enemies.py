@@ -3,14 +3,16 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from scripts.adapt import adapt_debug_episode_data as layouts
 from scripts.adapt.episode_data.enemies import (
-    adapt_episode_enemies_for_episode_layout, episode_enemy_individual_ids,
+    adapt_episode_enemies_for_episode_layout,
 )
+from server import get_all_enemy_individual_ids
 
 
 def enemy(role=1):
@@ -28,8 +30,8 @@ def enemy(role=1):
 class EpisodeEnemyTests(unittest.TestCase):
     def setUp(self):
         self.source = {'Datas': [enemy()]}
-        self.platoons = {'Datas': [dict(_id='fixture', Formation='1,0,2\r\n,1,',
-                                      FormationPadding=dict(x=1.5,y=2))]}
+        self.platoons = {'fixture': dict(_id='fixture', Formation='1,0,2\r\n,1,',
+                                      FormationPadding=dict(x=1.5,y=2))}
 
     def test_parent_resolves_grid_padding_and_preserves_child_order(self):
         original = copy.deepcopy(self.source)
@@ -48,16 +50,11 @@ class EpisodeEnemyTests(unittest.TestCase):
         self.assertEqual(rows[0]['AppearanceRule'], {'Type': 1, 'Params': [0, '12']})
         self.assertEqual(rows[1]['AppearanceRule'], {'Type': 2, 'Params': []})
 
-    def test_unknown_formation_is_reported_instead_of_publishing_lookup_id(self):
-        with self.assertRaisesRegex(ValueError, "fixture.*parent"):
-            adapt_episode_enemies_for_episode_layout(self.source,
-                platoon_master_data={'Datas': []})
-
     def test_generator_and_normal_without_formation_keep_summon_semantics(self):
         for role in (0,2):
             entry = enemy(role)
             entry['_childEnemyData'] = dict(EnemyIds=[''],FormationId='')
-            row = adapt_episode_enemies_for_episode_layout({'Datas':[entry]})[0]
+            row = adapt_episode_enemies_for_episode_layout({'Datas':[entry]}, {})[0]
             self.assertEqual(row['RoleType'],role+1)
             self.assertEqual(row['Child'],dict(Ids=[''],Formation='',FormationPadding=[0,0]))
             self.assertEqual(row['SummonRule']['EpisodeEnemyId'],'summon-only')
@@ -70,18 +67,54 @@ class EpisodeEnemyTests(unittest.TestCase):
         second = enemy()
         second['_individualID'] = 'child'
         second['_childEnemyData']['EnemyIds'] = ['', 'second']
-        self.assertEqual(episode_enemy_individual_ids({'Datas':[enemy(),second]}),
-                         ['leader','child','second','summon-only'])
+        ids = get_all_enemy_individual_ids({'Datas':[enemy(),second]})
+        self.assertEqual(set(ids), {'leader','child','second','summon-only'})
+        self.assertEqual(len(ids), 4)
 
     def test_layout_assembly_reads_platoons_from_explicit_data_root(self):
         def load(path):
             if Path(path).name == 'PlatoonMasterDataObject.json':
                 self.assertEqual(Path(path),Path('fixture-data/extract/masterdatadebug/PlatoonMasterDataObject.json'))
-                return self.platoons
+                return {'Datas': list(self.platoons.values())}
             return self.source
         with patch.object(layouts.os,'listdir',return_value=['EpisodeEnemyMasterDataObject.json']), patch.object(layouts,'load_json',side_effect=load):
             row = layouts.fill_episode_layout_group_by_episode_id('fixture',data_root='fixture-data')['Enemies'][0]
         self.assertEqual(row['Child']['FormationPadding'],[1.5,2])
+
+    def test_installed_layout_selection_keeps_separate_map_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            files = {
+                'extract/masterdatadebug/episode/selected-layout/EpisodeEnemyMasterDataObject.json':
+                    self.source,
+                'extract/masterdatadebug/episode/selected-layout/EpisodeGimmickMasterDataObject.json':
+                    {'Datas': []},
+                'extract/masterdatadebug/PlatoonMasterDataObject.json':
+                    {'Datas': list(self.platoons.values())},
+                'extract/masterdata/EpisodeMasterDataObject.json': {'Datas': [
+                    {'ID': 'map-episode', '_locationIDs': ['location']}]},
+                'extract/masterdata/StageLocationMasterDataObject.json': {'Datas': [
+                    {'_id': 'location', '_stageMapInfos': [
+                        {'_situation': 0, '_id': 'variant', '_resourcePath': 'maps/base'}]}]},
+                'masterdata/StageOptionGimmickMasterData.json': {'Datas': [
+                    {'_id': 'base', 'infos': [{
+                        '_id': 'map-gimmick', '_masterID': 'resource', '_typeID': 0,
+                        '_startStatus': 0, '_startScenarioNo': 1, '_endScenarioNo': 9,
+                        '_modelScale': {'x': 1, 'y': 1, 'z': 1}, '_addParamJson': '{}',
+                    }]}]},
+            }
+            for relative, data in files.items():
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(data), encoding='utf-8')
+            result = layouts.fill_episode_layout_group_by_episode_id(
+                'playable-episode', data_root=root, layout_id='selected-layout',
+                location_episode_id='map-episode')
+        self.assertEqual([row['EpisodeEnemyId'] for row in result['Enemies']],
+                         ['parent', 'Ext.parent.child', 'Ext.parent.second'])
+        self.assertEqual(result['Enemies'][0]['Child']['FormationPadding'], [1.5, 2])
+        self.assertEqual(result['Gimmicks'][0]['EpisodeGimmickId'], 'map-gimmick')
+        self.assertEqual(result['Gimmicks'][0]['StageMapID'], 'base')
 
     def test_release_child_definitions_are_external_and_keep_individual_identity(self):
         original = copy.deepcopy(self.source)
@@ -102,24 +135,23 @@ class EpisodeEnemyTests(unittest.TestCase):
     def test_generator_emits_one_external_target_without_recursive_summon(self):
         entry = enemy(2)
         entry['_childEnemyData'] = dict(EnemyIds=[''],FormationId='')
-        rows = adapt_episode_enemies_for_episode_layout({'Datas':[entry]})
+        rows = adapt_episode_enemies_for_episode_layout({'Datas':[entry]}, {})
         self.assertEqual(len(rows),2)
         self.assertEqual(rows[1]['EpisodeEnemyId'],'Ext.parent.summon-only')
         self.assertEqual(rows[1]['EnemyId'],'summon-only')
         self.assertIsNone(rows[1]['SummonRule'])
         entry['_summonEnemyData']['EnemyId'] = ''
-        self.assertEqual(len(adapt_episode_enemies_for_episode_layout({'Datas':[entry]})),1)
+        self.assertEqual(len(adapt_episode_enemies_for_episode_layout({'Datas':[entry]}, {})),1)
 
-    def test_repeated_child_target_has_one_definition_and_id_collisions_fail(self):
-        self.source['Datas'][0]['_childEnemyData']['EnemyIds']=['child','child']
-        rows = adapt_episode_enemies_for_episode_layout(self.source,platoon_master_data=self.platoons)
-        self.assertEqual(len(rows),2)
-        self.assertEqual(rows[0]['Child']['Ids'],['child','child'])
-        placed = enemy(0)
-        placed['_id'] = 'Ext.parent.child'
-        self.source['Datas'].append(placed)
-        with self.assertRaisesRegex(ValueError,'Duplicate external episode enemy'):
-            adapt_episode_enemies_for_episode_layout(self.source,platoon_master_data=self.platoons)
+    def test_external_definitions_follow_each_parent_as_in_upstream(self):
+        second = enemy()
+        second['_id'] = 'second-parent'
+        rows = adapt_episode_enemies_for_episode_layout(
+            {'Datas': [enemy(), second]}, self.platoons)
+        self.assertEqual([row['EpisodeEnemyId'] for row in rows], [
+            'parent', 'Ext.parent.child', 'Ext.parent.second',
+            'second-parent', 'Ext.second-parent.child', 'Ext.second-parent.second',
+        ])
 
     @unittest.skipUnless(os.environ.get('EMBLEO_TEST_RAID_DATA'), 'installed data opt-in')
     def test_installed_bastien_first_part_children_and_generator_dependencies(self):
@@ -127,7 +159,8 @@ class EpisodeEnemyTests(unittest.TestCase):
         extracted = root/'extract/masterdatadebug'
         source = json.loads((extracted/'episode/pl011_ep001/EpisodeEnemyMasterDataObject.json').read_text(encoding='utf-8'))
         platoons = json.loads((extracted/'PlatoonMasterDataObject.json').read_text(encoding='utf-8'))
-        rows = adapt_episode_enemies_for_episode_layout(source,platoon_master_data=platoons)
+        rows = adapt_episode_enemies_for_episode_layout(source,
+            {row['_id']: row for row in platoons['Datas']})
         by_id = {row['EpisodeEnemyId']:row for row in rows}
         parent = by_id['EM_CP01_010-Platoon01']
         cells = [cell.strip() for line in parent['Child']['Formation'].splitlines() for cell in line.split(',') if cell.strip()]
@@ -143,8 +176,8 @@ class EpisodeEnemyTests(unittest.TestCase):
         self.assertIsNone(external['SummonRule'])
         individuals = json.loads((root/'masterdata/EnemyIndividualMasterData.json').read_text(encoding='utf-8'))
         known = {row['Index'] for row in individuals}
-        self.assertFalse(set(episode_enemy_individual_ids(source))-known)
-        self.assertIn('em0011_001_03',episode_enemy_individual_ids(source))
+        self.assertFalse(set(get_all_enemy_individual_ids(source))-known)
+        self.assertIn('em0011_001_03',get_all_enemy_individual_ids(source))
         self.assertTrue(all(row['Child']['Formation'] for row in rows if row['RoleType']==2))
 
 
