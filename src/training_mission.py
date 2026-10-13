@@ -7,6 +7,15 @@ from itsdangerous import BadSignature, URLSafeSerializer
 _tokens = URLSafeSerializer(secrets.token_bytes(32), salt='training-mission')
 
 
+def mission_finishes():
+    # CheckMissionEnd's Killed branch compares native mission kills against
+    # the sum of installed enemies' AppearanceNum, including future waves.
+    # Flag bit 0 means failure; Option is unused for these three finish types.
+    return [dict(Type=1, Flag=1, Option=''),
+            dict(Type=3, Flag=0, Option=''),
+            dict(Type=2, Flag=1, Option='')]
+
+
 def mission_token(account_id, mission_id, character_id):
     return _tokens.dumps([account_id, mission_id, character_id])
 

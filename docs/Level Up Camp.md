@@ -32,6 +32,16 @@ and `LoadPlayers` must also retain the selected character. Both scenario-list
 and scenario-group assembly use the shared `load_adapted_episode_scenario`
 helper, whose bootstrap condition handles `sc` and `exp` mission IDs.
 
+Camp finish conditions use the native `SecretMissionFinishType` values: `Dead`
+(1, failure flag 1), `Killed` (3, success flag 0), and `TimeIsUp` (2, failure flag
+1). `None` (0) is ignored and cannot finish a battle. Native
+`SecretMissionManager.StartMission` accumulates each installed enemy's
+`AppearanceNum` into `_defeatTargetNum` at `0x17EE298`–`0x17EE2A8`.
+`CheckMissionEnd`'s Killed branch at `0x17F108C`–`0x17F128C` compares the native
+`IPlayLogManager.GetMissionKillCount()` against that total, covering future waves
+without a guessed group ID or kill count. `GetJudgment` at `0x17F2474` reads
+failure flag bit 0. The death, kill and timeout branches do not use `Option`.
+
 End and retire return current account state and zero added experience. Training
 playlog rewards and XP settlement remain unimplemented; these responses do not
 modify saves. The signed mission token binds the selected character to the

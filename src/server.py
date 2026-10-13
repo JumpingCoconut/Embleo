@@ -972,7 +972,7 @@ def level_up_camp_start():
 	start_data = load_json("./offline_responses/api/training-mission/start.json")
 
 	# Probably can be anything
-	from training_mission import mission_token
+	from training_mission import mission_token, mission_finishes
 	start_data["MissionToken"] = mission_token(g.account_id, training_mission_id, character_id)
 
 	start_data["CharacterDetail"] = fill_episode_character_detail()
@@ -1042,12 +1042,7 @@ def level_up_camp_start():
 		"Detail": {
 			"TimeLimit": 300,
 			"TimerCountType": 1,
-			"Finishes": [
-				{
-					"Type": 0,
-					"Flag": 1,
-					"Option": ""
-				}],
+			"Finishes": mission_finishes(),
 			"Rules": []
 		}
 	}

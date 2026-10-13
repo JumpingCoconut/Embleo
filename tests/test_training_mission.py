@@ -7,12 +7,23 @@ from copy import deepcopy
 import msgpack
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from training_mission import checkpoint_scenario, mission_token, token_character
+from training_mission import checkpoint_scenario, mission_token, token_character, mission_finishes
 from flask import g
 import server
 
 
 class TrainingMissionTests(unittest.TestCase):
+    def test_finishes_use_native_killed_success_and_death_timeout_failure(self):
+        finishes = mission_finishes()
+        by_type = {row['Type']: row for row in finishes}
+        self.assertEqual(set(by_type), {1, 2, 3})
+        self.assertEqual(by_type[3], dict(Type=3, Flag=0, Option=''))
+        self.assertEqual(by_type[1]['Flag'], 1)
+        self.assertEqual(by_type[2]['Flag'], 1)
+        # Callers cannot alter future battle responses by mutating a result.
+        finishes[1]['Flag'] = 1
+        self.assertEqual(mission_finishes()[1]['Flag'], 0)
+
     def test_token_rejects_tampering_another_account_and_another_stage(self):
         token = mission_token('account-a', 'exp_mission_005', 'pl010')
         self.assertEqual(token_character(token, 'account-a', 'exp_mission_005'), 'pl010')
@@ -85,6 +96,7 @@ class TrainingMissionTests(unittest.TestCase):
         self.assertEqual(result['CharacterDetail']['characters'], [dict(CharacterId='pl010')])
         self.assertEqual(result['EpisodeDetail']['LayoutGroup']['CheckPoints'][0]['LoadPlayers'], ['pl010'])
         self.assertEqual(result['MissionDetail']['TrainingMissionId'], 'exp_mission_005')
+        self.assertEqual(result['MissionDetail']['Detail']['Finishes'], mission_finishes())
         self.assertEqual(result['MissionDetail']['LocationId'], 'SCH01')
         self.assertEqual(result['EpisodeDetail']['LayoutGroup']['CheckPoints'][0]['PartyPlayers'], ['pl010'])
         self.assertEqual(result['CharacterDetail']['baseVisual']['characters'][0]['VisualEquipment'],
