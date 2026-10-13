@@ -67,7 +67,7 @@ def adapt_episode_enemies_for_episode_layout(master_data, *, platoon_master_data
 		# EpisodeEnemyAppearanceRule
 		layout_entry["AppearanceRule"] = {
 			"Type": entry["_appearanceID"],
-			"Params": [entry["_appearanceParam1"]]
+			"Params": [entry["_appearanceParam1"], str(entry["_appearanceIntParam1"])]
 		}
 
 		# EpisodeEnemyChild
@@ -84,19 +84,21 @@ def adapt_episode_enemies_for_episode_layout(master_data, *, platoon_master_data
 		}
 
 		# EpisodeEnemySummonRule
+		summon_data = entry["_summonEnemyData"]
+
 		layout_entry["SummonRule"] = {
-			"EpisodeEnemyId": entry["_summonEnemyData"]["EnemyId"],
-			"InitialAppearNum": entry["_summonEnemyData"]["_initialAppearNum"],
-			"MinLimitNum": entry["_summonEnemyData"]["_minLimitNum"],
-			"TotalNum": entry["_summonEnemyData"]["_totalNum"],
-			"Offset": SerVec2toVec2(entry["_summonEnemyData"]["Offset"]),
-			"Range": SerVec2toVec2(entry["_summonEnemyData"]["Range"]),
-			"AppearPointName": entry["_summonEnemyData"]["AppearPointName"],
-			"DieWithChild": bool(entry["_summonEnemyData"]["DieWithChild"]),
-			"InitRotateAngle": entry["_summonEnemyData"]["InitRotateAngle"],
-			"OffsetAdd": SerVec2toVec2(entry["_summonEnemyData"]["OffsetAdd"]),
-			"RangeAdd": SerVec2toVec2(entry["_summonEnemyData"]["RangeAdd"]),
-			"InitRotateAngleAdd": entry["_summonEnemyData"]["InitRotateAngleAdd"]
+			"EpisodeEnemyId": summon_data["EnemyId"],
+			"InitialAppearNum": summon_data["_initialAppearNum"],
+			"MinLimitNum": summon_data["_minLimitNum"],
+			"TotalNum": summon_data["_totalNum"],
+			"Offset": SerVec2toVec2(summon_data["Offset"]),
+			"Range": SerVec2toVec2(summon_data["Range"]),
+			"AppearPointName": summon_data["AppearPointName"],
+			"DieWithChild": bool(summon_data["DieWithChild"]),
+			"InitRotateAngle": summon_data["InitRotateAngle"],
+			"OffsetAdd": SerVec2toVec2(summon_data["OffsetAdd"]),
+			"RangeAdd": SerVec2toVec2(summon_data["RangeAdd"]),
+			"InitRotateAngleAdd": summon_data["InitRotateAngleAdd"]
 		}
 
 		enemies.append(layout_entry)

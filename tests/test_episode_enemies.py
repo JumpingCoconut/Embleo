@@ -15,7 +15,7 @@ from scripts.adapt.episode_data.enemies import (
 
 def enemy(role=1):
     return dict(_id='parent', _individualID='leader', _enemyType=role,
-        _appearanceNum=1, _groupID='group', _appearanceID=1, _appearanceParam1=0,
+        _appearanceNum=1, _groupID='group', _appearanceID=1, _appearanceParam1=0, _appearanceIntParam1=0,
         _charactorVisualId='', _surviveId='', _patrolPoints=[], _priorityPoint='',
         _startScenarioNo=10000, _endScenarioNo=19999,
         _childEnemyData=dict(EnemyIds=['child', 'second'], FormationId='fixture'),
@@ -39,6 +39,14 @@ class EpisodeEnemyTests(unittest.TestCase):
             Formation='1,0,2\r\n,1,', FormationPadding=[1.5,2]))
         self.assertEqual(row['RoleType'], 2)
         self.assertEqual(self.source, original)
+
+    def test_appearance_rule_preserves_integer_spawn_parameter(self):
+        entry = enemy()
+        entry['_appearanceIntParam1'] = 12
+        rows = adapt_episode_enemies_for_episode_layout({'Datas': [entry]},
+            platoon_master_data=self.platoons)
+        self.assertEqual(rows[0]['AppearanceRule'], {'Type': 1, 'Params': [0, '12']})
+        self.assertEqual(rows[1]['AppearanceRule'], {'Type': 2, 'Params': []})
 
     def test_unknown_formation_is_reported_instead_of_publishing_lookup_id(self):
         with self.assertRaisesRegex(ValueError, "fixture.*parent"):

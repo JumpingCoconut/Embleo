@@ -56,7 +56,6 @@ SKIP_ROUTE_FORK_MERGE = False
 
 FAKE_CHECKPOINT_PATH = "./checkpoint.txt"
 
-
 '''
 logging.basicConfig(
 	filename='app.log',		 # The name of the log file
@@ -337,207 +336,24 @@ def provision():
 
 
 ########################
-#			GACHA
-########################
-"""
-For each pulled item
-
-Roll for rarity
-5☆ -  5%
-4☆ - 30%
-3☆ - 65%
-
-Roll for random item in that rarity
-	TODO Rate Up have higher chance
-	- Sort out prize pool by rarity
-	- secret.choice() a random item
-	
-	Handle a case where a rarity is not present
-
-"""
-
-
-def roll_rarity():
-	five_star_chance = 5
-	four_star_chance = 30
-
-	chance_number = secrets.randbelow(100) + 1	# Add 1 to put it into 1-100 range, instead of 0-99
-
-	if chance_number <= five_star_chance:
-		return 5
-	elif five_star_chance < chance_number <= four_star_chance:
-		return 4
-	elif chance_number > four_star_chance:
-		return 3
-
-
-def roll_equipment_item(single_rarity_equipment_list):
-	return secrets.choice(single_rarity_equipment_list)
-
-
-def sort_gacha_prize_list_by_rarity(prize_list):
-	sorted_prize_list = {
-		"5": [],
-		"4": [],
-		"3": []
-	}
-
-	for entry in prize_list:
-		rarity = entry["Rarity"]
-		sorted_prize_list[str(rarity)].append(entry)
-
-	return sorted_prize_list
-
-
-def gacha_get_draw_result(pull_amount, sorted_rarity_prize_list):
-	gacha_result = []
-
-	for i in range(pull_amount):
-		rarity_roll = roll_rarity()
-		equipment_item = roll_equipment_item(sorted_rarity_prize_list[str(rarity_roll)])
-		equipment_id = equipment_item["ItemId"]
-
-		gacha_result.append({"ItemId": equipment_id})
-
-	return gacha_result
-
-
-def gacha_find_banner(gacha_master, gacha_base_id):
-	for gacha in gacha_master:
-		if gacha["GachaBaseId"] == gacha_base_id:
-			return gacha
-
-
-user_equipment_example = {
-	"EquipmentId": "pl001_04_001",
-	"Category": 1,
-	"Level": 1,
-	"Exp": 1,
-	"UpdatedAt": 0,
-	"SpLevel": 1,
-	"SpNext": 5,
-	"CreatedAt": 0
-}
-
-
-def is_equipment_id_in_user_equipment(equipment_id, user_equipment):
-	return any(equipment_id in i for i in user_equipment)
-
-
-@app.route("/api/gacha/draw", methods=["GET", "POST"])
-def gacha_draw():
-	draw_request_data = msgpack.unpackb(request.data)
-
-	request_gacha_id = draw_request_data["gachaId"]
-
-	gacha_draw_result = {
-		"GachaId": request_gacha_id,
-		"Gacha": [],
-		# "GachaTicket": [],
-		"HcBalance": {},
-		"OrderdIds": [],
-		"Equipment": [],
-		"Character": [],
-		"Result": []
-		# "Mission": [],
-		# "MissionMaster": []
-	}
-
-	# gacha_master = load_json("./data/masterdata/GachaMasterData generated.json")
-
-	# Update banner retrieval time in gacha master
-	for entry in gacha_master:
-		current_time = time.time()
-		entry["ContentsOrderDate"] = int(current_time)
-
-	# Send current banners
-	# Implement removing Daily banner
-	gacha_draw_result["Gacha"] = gacha_master
-
-	# _single or _ten
-	gacha_base_id = request_gacha_id[:request_gacha_id.rfind("_")]
-	pull_count: int
-
-	current_banner = gacha_find_banner(gacha_master, gacha_base_id)
-
-	for body in current_banner["Bodies"]:
-		if body["GachaId"] == request_gacha_id:
-			pull_count = body["EjectionCount"]
-			break
-
-	# Implement currency subtraction
-	gacha_draw_result["HcBalance"] = load_json("./data/user/HcBalance.json")
-
-	# Pulling gacha items
-	sorted_rarity_prize_list = sort_gacha_prize_list_by_rarity(current_banner["Prizes"])
-	gacha_draw_result["Result"] = gacha_get_draw_result(pull_count, sorted_rarity_prize_list)
-
-	# Implement upgrades
-	# Check if item_id is in the user_equipment
-	# If it's present, increment the level by 1
-	# If it's not - add the item
-
-	equipment_master = load_json("./data/masterdata/EquipmentMasterData.json")
-	user_equipment = load_json("./data/user/UserEquipment.json")
-
-	for entry in gacha_draw_result["Result"]:
-		item_id = entry["ItemId"]
-
-		# Add equipment piece if it's not in response
-		new_equipment = dict.copy(user_equipment_example)
-
-		new_equipment["EquipmentId"] = item_id
-
-		if "wp" in item_id:
-			new_equipment["Category"] = 2
-
-		if "acc" in item_id:
-			new_equipment["Category"] = 3
-
-		if new_equipment not in gacha_draw_result["Equipment"]:
-			gacha_draw_result["Equipment"].append(new_equipment)
-
-	# gacha_draw_result["Equipment"] = user_equipment
-	# gacha_draw_result["Character"] = load_json("./data/user/UserCharacter.json")
-
-	return pack_json_response(gacha_draw_result)
-
-
-########################
-#			MARKET
-########################
-
-@app.route("/api/cooking/market-buy", methods=["GET", "POST"])
-def market_buy():
-	# {"carts": [{"id": "ing040", "amount": 5, "itemId": "ing040", "price": 199}], "gold": 10000, "total": 995}
-
-	cart_json = msgpack.unpackb(request.data)
-
-	bought = {}
-
-	for item in cart_json["carts"]:
-		bought[item["itemId"]] = item["amount"]
-
-	for item in user_items_json_data:
-		if item["ItemId"] in bought:
-			item["Count"] += bought[item["itemId"]]
-
-	return pack_json_response({})
-
-
-@app.route("/api/cooking/market-goods", methods=["GET", "POST"])
-def market_list():
-	market_goods = {
-		"Goods": load_json("./data/food/market_goods.json")
-	}
-
-	return pack_json_response(market_goods)
-
-
-########################
 #			EPISODE
 ########################
 
+secret_mission_base_scenario = [
+    {
+        "Id": "00001",
+        "ScenarioNo": 1,
+        "ProgressType": 1,
+        "Progress": {
+            "ProgressCheckPointId": "00001",
+            "LayoutCheckPointId": "CP_00001",
+            "RequestSave": True,
+            "IsReload": True,
+            "IsDarkenRestart": True,
+            "Progress": []
+        }
+    }
+]
 
 @app.route("/api/episode/list", methods=["GET", "POST"])
 def episode_list():
@@ -553,6 +369,7 @@ episode_master_data_path_format = "./data/masterdata/episode/{0}/"
 
 # Use unadapted debug data for now
 episode_master_data_path_format = "./data/extract/masterdatadebug/episode/{0}/"
+
 
 def get_episode_gimmick_id_list(episode_id):
 	episode_gimmick_id_list = []
@@ -628,7 +445,10 @@ def fill_scenario_group_from_adapted_scenario(episode_id):
 		"MiniGames": []
 	}
 
-	adapted_episode_scenario = load_json("./data/masterdata/scenario/{0}.json".format(episode_id))
+	if "sc" in episode_id:
+		adapted_episode_scenario = secret_mission_base_scenario
+	else:
+		adapted_episode_scenario = load_json("./data/masterdata/scenario/{0}.json".format(episode_id))
 
 	for entry in adapted_episode_scenario:
 		ProgressType = entry["ProgressType"]
@@ -755,7 +575,10 @@ skip_scenario = []
 def fill_scenario_list_from_adapted_scenario(episode_id):
 	scenarios = []
 
-	adapted_episode_scenario = load_json("./data/masterdata/scenario/{0}.json".format(episode_id))
+	if "sc" in episode_id:
+		adapted_episode_scenario = secret_mission_base_scenario
+	else:
+		adapted_episode_scenario = load_json("./data/masterdata/scenario/{0}.json".format(episode_id))
 
 	for entry in adapted_episode_scenario:
 		new_scenario_entry = {
@@ -952,7 +775,8 @@ def get_episode_character_visual_settings(episode_id):
 	visual_settings = []
 
 	# From debug checkpoint
-	episode_checkpoint_data = load_json("./data/extract/masterdatadebug/episode/{0}/EpisodeCheckPointMasterDataObject.json".format(episode_id))
+	episode_checkpoint_data = load_json(
+		"./data/extract/masterdatadebug/episode/{0}/EpisodeCheckPointMasterDataObject.json".format(episode_id))
 
 	for entry in episode_checkpoint_data["Datas"]:
 		visual_setting = {
@@ -992,9 +816,9 @@ def episode_start():
 	start_data["EpisodeToken"] = episode_id
 
 	start_data["CharacterDetail"] = fill_episode_character_detail()
-	
+
 	start_data["CharacterDetail"]["baseVisual"]["settings"] = get_episode_character_visual_settings(episode_id)
-	
+
 	# Just a list of masterdata ids?
 	start_data["EnemyDetail"] = fill_enemy_detail_by_episode_id(episode_id)
 
@@ -1023,6 +847,7 @@ def episode_start():
 	start_data["MasterGroup"] = fill_episode_master_group()
 
 	return pack_json_response(start_data)
+
 
 @app.route("/api/episode/continue", methods=["GET", "POST"])
 def episode_continue():
@@ -1069,6 +894,7 @@ def episode_continue():
 	start_data["MasterGroup"] = fill_episode_master_group()
 
 	return pack_json_response(start_data)
+
 
 @app.route("/api/episode/retire", methods=["GET", "POST"])
 def episode_retire():
@@ -1390,9 +1216,9 @@ def fill_episode_character_detail():
 	# Better way would be only loading options used by an episode
 	character_detail["baseVisual"]["characters"] = load_json(
 		"./data/masterdata/EpisodeCharacterVisualMasterData.json")
-	
-	
+
 	return character_detail
+
 
 
 @app.route("/api/secret-mission/start", methods=["GET", "POST"])
@@ -1436,6 +1262,7 @@ def secret_mission_start():
 
 	start_data["CharacterDetail"] = character_detail
 
+	'''
 	episode_scenario_master_data = load_json("./data/masterdata/scenario/{0}.json".format(secret_mission_id))
 	for entry in episode_scenario_master_data:
 
@@ -1454,6 +1281,7 @@ def secret_mission_start():
 			# start_data["CharacterDetail"]["baseVisual"]["settings"][0] = preload_settings
 
 			break
+	'''
 
 	start_data["CharacterDetail"]["baseVisual"]["characters"] = load_json(
 		"./data/masterdata/EpisodeCharacterVisualMasterData.json")
@@ -1462,6 +1290,52 @@ def secret_mission_start():
 	start_data["EpisodeDetail"] = fill_episode_detail_by_episode_id(secret_mission_id)
 
 	# EpisodeDetailUser
+
+	# Add Apple Gummies
+	'''
+	for collectable in start_data["EpisodeDetail"]["LayoutGroup"]["StaticItems"]:
+		box_id = collectable["EpisodeStaticItemId"]
+
+		box_drop = {
+			"Target": 5,
+			"TargetId": box_id,
+			"Items": []
+		}
+
+		item = {
+			"DropId": "AppleGummy_001",
+			"Type": 2,
+			"ItemId": "itin000001",
+			"Count": 1
+		}
+
+		box_drop["Items"].append(item)
+
+		start_data["EpisodeDetailUser"]["acquireStaticItemIds"].append(box_id)
+		# start_data["EpisodeDetailUser"]["drops"].append(box_drop)
+
+		# print(start_data["EpisodeDetailUser"]["drops"])
+
+	# Add all breakables
+	for breakable in start_data["EpisodeDetail"]["LayoutGroup"]["Breakables"]:
+		box_id = breakable["EpisodeBreakableId"]
+
+		box_drop = {
+			"Target": 2,
+			"TargetId": box_id,
+			"Items": [{
+				"DropId": box_id,
+				"Type": 2,
+				"ItemId": "ing019",
+				"Count": 1
+			}]
+		}
+
+		start_data["EpisodeDetailUser"]["acquireStaticItemIds"].append(box_id)
+		# start_data["EpisodeDetailUser"]["drops"].append(box_drop)
+	'''
+
+	print(start_data["EpisodeDetailUser"]["drops"])
 
 	# MissionDetail
 	# Secret Mission Detail from episode master data
@@ -1474,7 +1348,7 @@ def secret_mission_start():
 				if secret_mission["Id"] == secret_mission_id:
 					start_data["MissionDetail"] = secret_mission["Detail"]
 
-					print(start_data["MissionDetail"])
+				# print(start_data["MissionDetail"])
 
 	# MasterGroup
 	start_data["MasterGroup"] = fill_episode_master_group()
@@ -1570,16 +1444,23 @@ def top_add_episodes():
 
 			episode_ordered_ids.append(dict.copy(episode_order))
 
-		'''
-		# Crossroads
-		episode_order = {
-			"MasterDataId": "mstone_ep00" + str(episode_number),
-			"Type": 0
-		}
-		
-		if episode_order not in ordered_ids:
-			episode_ordered_ids.append(dict.copy(episode_order))
-		'''
+	# Crossroads
+	episode_order = {
+		"MasterDataId": "mstone_ep001",
+		"Type": 0
+	}
+
+	# if episode_order not in ordered_ids:
+	episode_ordered_ids.append(dict.copy(episode_order))
+
+	# Crossroads
+	episode_order = {
+		"MasterDataId": "mstone_ep003",
+		"Type": 0
+	}
+
+	# if episode_order not in ordered_ids:
+	episode_ordered_ids.append(dict.copy(episode_order))
 
 	# print(episode_ordered_ids)
 	return episode_ordered_ids
@@ -1792,8 +1673,10 @@ def api_user_login():
 
 	login_data["loginInfo"]["name"] = login_data["user"]["name"]
 
-	body = pack_json_response(login_data)  # keep leading slash semantics consistent
-	return Response(body, content_type=MSGPACK_CONTENT_TYPE)
+	# body = pack_json_response(login_data)  # keep leading slash semantics consistent
+
+
+	return pack_json_response(login_data)
 
 
 @app.route("/api/user/register", methods=["GET", "POST"])
@@ -1810,8 +1693,7 @@ def api_user_register():
 	response_json["User"] = user_data
 	response_json["UserItems"] = load_json("./data/user/UserItems.json")
 
-	body = pack_json_response(response_json)
-	return Response(body, content_type=MSGPACK_CONTENT_TYPE)
+	return pack_json_response(response_json)
 
 
 @app.route("/api/user/change-name", methods=["POST"])
@@ -2182,7 +2064,7 @@ if __name__ == "__main__":
 
 	if not os.path.exists("./post/"):
 		os.makedirs("./post/", exist_ok=True)
-	
+
 	# print("Current Working Directory:", os.getcwd())
 	
 	# Private operator configuration supplies installed providers and TLS.

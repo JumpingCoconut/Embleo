@@ -44,6 +44,7 @@ src/post/*
 src/response_skeletons/
 
 src/asset_server_link.txt
+src/account_token.txt
 src/checkpoint.txt
 src/server_config.txt
 src/cmd server.bat
