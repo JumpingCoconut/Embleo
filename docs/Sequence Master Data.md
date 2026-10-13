@@ -253,3 +253,15 @@ After the bundles are installed, regenerate only sequence masters from `src/`:
 `tests/test_special_skill.py` covers index handling, separate costume keys, multiple clip families, opt-in charging, and optional coverage of every locally installed special-skill bundle. Asset-level validation does not establish in-game damage, targeting, or co-op synchronization; those require playtests.
 
 For repeated local tests, set `INSTANT_MYSTIC_ARTES = True` beside `SKIP_BATTLES` in `server.py`, or start the server with `EMBLEO_INSTANT_MYSTIC_ARTES=1`. Either switch enables charging in both episodes and installed raids; an unset environment variable or `0` does not override a true source flag. `combat_debug.py` supplies an infinite startup DoT buff whose fixed negative SkillGauge amount refills the native 300-point gauge on its first tick and after use. It changes response masters only and preserves existing startup buffs and account saves. Set the source flag to false, disable the environment variable, and restart the server to restore ordinary charging. Native gauge handling supports the mechanism; timing and UI behavior still require a client playtest.
+Enemy movement recovery incorporates Spreit's `feature/sequence-adaptation`
+branch (`4e23147`). Setup downloads all `characters/enemy/` bundles, extracts
+each prefab's SequenceSetting and follows its animation bundle's action tracks.
+EnemyMove clips use timeline traversal indices because they have no serialized
+clipIndex. The installed manifest selects exact bundle versions.
+
+Recovered MoveSetting rows merge into existing enemy masters after debug
+adaptation. Existing attack rows and player/costume masters are preserved;
+upstream's unfinished attack extraction must not emit empty attack payloads.
+The same setup runs in a normal src checkout and a flat runtime installation.
+Movement data verification does not establish that all enemy AI or camp waves
+work in gameplay.

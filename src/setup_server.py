@@ -9,6 +9,7 @@ from scripts.adapt.adapt_debug_master_data import adapt_debug_master_data
 from scripts.adapt.master_data.special_skill import sequence_bundle_names, minion_command_bundle_names
 from scripts.adapt.adapt_debug_scenario import adapt_debug_scenario_file, batch_adapt_scenario_folder
 from scripts.adapt.adapt_chronology_for_server import generate_character_chronology_json
+from scripts.adapt.adapt_sequence_data import extract_all_SequenceSetting_files, adapt_sequence_data_from_animation_data, merge_enemy_movement
 
 from scripts.generate.generate_episode_master_data import generate_episode_master_data
 from scripts.generate.generate_temp_level_curve import generate_character_curve_list, generate_equipment_curve_list
@@ -277,6 +278,9 @@ def setup(asset_server_link, news_settings=None):
         download_manifest_files_from_asset_server([
             adapt_manifest_entry_for_server(entry) for entry in special_skills])
 
+        print("Downloading enemy sequence assets")
+        download_manifest_files_from_asset_server(get_all_files_in_folder_manifest("characters/enemy/"))
+
         # japanese chronology, single file
         print("Downloading chronology")
         Chronology = get_all_files_in_folder_manifest("lang_ja/texts/commonterm/chronology")
@@ -289,10 +293,19 @@ def setup(asset_server_link, news_settings=None):
         downloaded_files = list(pathlib.Path(DOWNLOAD_FOLDER).rglob("*.*"))
 
         for path in downloaded_files:
+            if path.is_relative_to(DOWNLOAD_FOLDER / 'characters'):
+                continue
             extract_file(str(path))
 
     if adapt_master_data:
         adapt_debug_master_data(EXTRACT_FOLDER, MASTER_DATA_FOLDER)
+
+        sequence_settings = EXTRACT_FOLDER / 'SequenceSetting'
+        extract_all_SequenceSetting_files(DOWNLOAD_FOLDER / 'characters', sequence_settings)
+        _, enemy_sequences = adapt_sequence_data_from_animation_data(sequence_settings, DOWNLOAD_FOLDER / 'characters')
+        enemy_path = MASTER_DATA_FOLDER / 'EnemySequenceMasterData.json'
+        existing = json.loads(enemy_path.read_text(encoding='utf-8'))
+        enemy_path.write_text(json.dumps(merge_enemy_movement(existing, enemy_sequences), indent=4), encoding='utf-8')
 
         generate_character_chronology_json(EXTRACT_FOLDER / "lang_ja/texts/commonterm/Chronology.json",
                                            CHRONOLOGY_FOLDER)
