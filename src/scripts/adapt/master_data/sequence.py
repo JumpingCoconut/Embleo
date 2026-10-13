@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from .special_skill import recover_special_skills
+from .special_skill import recover_special_skills, recover_minion_commands
 
 
 def adapt_debug_sequence_list(sequence_list):
@@ -56,7 +56,7 @@ def adapt_debug_sequences_master_data(input_file_path, output_folder, bundle_roo
         bundle_root = input_file_path.resolve().parents[2] / 'download'
     adapted_sequences = adapt_debug_sequence_list([
         *attack_list, *move_list, *parameter_list,
-        *recover_special_skills(bundle_root)])
+        *recover_special_skills(bundle_root), *recover_minion_commands(bundle_root)])
 
     character_sequences = []
     enemy_sequences = []

@@ -242,6 +242,8 @@ Indices address master payloads, not timestamps. Preserve `ClipIndex`, sparse in
 
 The adapter also emits a `ResourceList` row per character for external assets referenced by the timelines, including nested summon effects and effect-call clips. Combat settings and resource preloading are separate client paths: a summon can require its effect prefab to exist before it can create the damaging object. The JSON wrapper contains one `ResourceList` object with `id` and `values`, rather than an array; each external path has resource type `1` (`Path`). References shared across costumes are deduplicated.
 
+Charles (`pl021`) also needs the normal `Attack4` and `Charge4` sequence bundles: the debug masters contain his minions' attacks but omit the owner commands. Recovery preserves each `MinionOrder Clip` at its separate `clipIndex`. `Charge4` targets the owner's enemy, selects `MinionUniqueAttack1`, and sets `isTerminate`; `Attack4` selects `MinionUniqueAttack2`. These values come from the bundles, rather than server-invented summon limits or damage rules.
+
 After the bundles are installed, regenerate only sequence masters from `src/`:
 
 ```powershell

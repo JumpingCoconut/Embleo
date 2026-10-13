@@ -9,7 +9,10 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
 from combat_debug import apply_instant_mystic_artes, INSTANT_MYSTIC_ENV, GAUGE_BUFF_ID
-from scripts.adapt.master_data.special_skill import recover_sequence, sequence_bundle_names, recover_special_skills
+from scripts.adapt.master_data.special_skill import (
+    recover_sequence, sequence_bundle_names, recover_special_skills,
+    recover_minion_commands, minion_command_bundle_names,
+)
 from scripts.adapt.master_data.sequence import adapt_debug_sequence_list
 from pve_stats import startup_buff_ids
 
@@ -22,6 +25,38 @@ def timeline(name, clips):
 
 
 class SpecialSkillTests(unittest.TestCase):
+    def test_minion_command_uses_its_own_index_and_preserves_sacrifice(self):
+        command = {'Mode': 2, 'isSetOwnerTarget': 1, 'moveType': 1,
+                   'playSequenceName': 'MinionUniqueAttack1', 'isTerminate': 1,
+                   'isDisableExceptForLeader': 1}
+        seq, resolve = timeline('Charge4', [
+            dict(m_Name='Animator Clip', isAttack=1, attackBaseInfo={}),
+            dict(m_Name='MinionOrder Clip', clipIndex=0, minionOrderSettings=command)])
+        attack = recover_sequence('pl021', seq, resolve)[0]['AttackSetting'][0]
+        self.assertEqual(attack['sequenceName'], 'Charge4')
+        self.assertEqual(attack['totalClipCount'], 1)
+        self.assertEqual(attack['clipDatas'], [{'clip_MinionOrder': command}])
+
+    def test_installed_charles_sacrifice_commands(self):
+        root = Path(__file__).resolve().parents[1] / 'src/data'
+        manifest_path = root / 'extract/manifest.json'
+        if not manifest_path.exists():
+            self.skipTest('Local game assets are not installed')
+        entries = minion_command_bundle_names(json.loads(manifest_path.read_text(encoding='utf-8')))
+        if len(entries) != 2 or not all(
+            (root / 'download' / (e['Name'] + '_' + e['Version'] + '.ab')).exists()
+            for e in entries
+        ):
+            self.skipTest('Minion command bundles are not installed')
+        rows = recover_minion_commands(root / 'download')
+        attacks = {s['sequenceName']: s for r in rows for s in r.get('AttackSetting', [])}
+        charge = attacks['Charge4']['clipDatas'][0]['clip_MinionOrder']
+        self.assertEqual(charge['playSequenceName'], 'MinionUniqueAttack1')
+        self.assertEqual(charge['isTerminate'], 1)
+        self.assertEqual(charge['isSetOwnerTarget'], 1)
+        self.assertEqual(attacks['Attack4']['clipDatas'][0]['clip_MinionOrder']['playSequenceName'],
+                         'MinionUniqueAttack2')
+
     def test_installed_costume_coverage_and_serialized_keys(self):
         root = Path(__file__).resolve().parents[1] / 'src/data'
         if not (root / 'extract/manifest.json').exists():

@@ -19,6 +19,18 @@ ATTACK_CLIPS = {
     'Summon Clip': ('clip_Summon', 'clipSettings'),
 }
 
+# These owner commands are absent from the debug masters even though their
+# minions' attack payloads are present there.
+MINION_COMMAND_SEQUENCES = {
+    'characters/player/pl021/sequences/attack4',
+    'characters/player/pl021/sequences/charge4',
+}
+
+
+def minion_command_bundle_names(manifest):
+    return [entry for entry in manifest['m_Entries']
+            if entry['Name'].lower() in MINION_COMMAND_SEQUENCES]
+
 
 def sequence_bundle_names(manifest):
     """Animation bundles are unnecessary; only download sequence assets."""
@@ -77,6 +89,8 @@ def recover_sequence(owner, sequence, resolve):
                     put(attack, index, 'hitSetting', data['hitSettings'])
             elif kind == 'UpdateAttackInfo Clip':
                 put(update, data['clipIndex'], 'attackBaseInfo', data['attackBaseInfo'])
+            elif kind == 'MinionOrder Clip':
+                put(attack, data['clipIndex'], 'clip_MinionOrder', data['minionOrderSettings'])
             elif kind == 'SpecialSkillMagic Clip':
                 settings = data['clipSettings']
                 put(update, settings['ClipIndex'], 'clip_SpecialSkillMagic', settings)
@@ -115,10 +129,9 @@ def recover_bundle(path, owner):
     env = UnityPy.load(str(path))
     sequences = [obj.read_typetree() for obj in env.objects
                  if obj.type.name == 'MonoBehaviour']
-    roots = [data for data in sequences
-             if data.get('m_Name', '').startswith('SpecialSkill@') and 'tracks' in data]
+    roots = [data for data in sequences if 'tracks' in data]
     if len(roots) != 1:
-        raise ValueError(f'{Path(path).name}: expected one special skill sequence')
+        raise ValueError(f'{Path(path).name}: expected one timeline sequence')
     objects = {obj.path_id: obj for obj in env.objects}
 
     def resolve(ref):
@@ -127,6 +140,24 @@ def recover_bundle(path, owner):
         return objects[ref['m_PathID']].read_typetree()
 
     return recover_sequence(owner, roots[0], resolve)
+
+
+def recover_minion_commands(bundle_root):
+    bundle_root = Path(bundle_root)
+    manifest_path = bundle_root.parent / 'extract/manifest.json'
+    if not manifest_path.exists():
+        raise FileNotFoundError('Installed manifest is required to recover minion commands')
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8-sig'))
+    entries = minion_command_bundle_names(manifest)
+    if {entry['Name'].lower() for entry in entries} != MINION_COMMAND_SEQUENCES:
+        raise ValueError('Manifest is missing required minion command sequences')
+    result = []
+    for entry in entries:
+        path = bundle_root / (entry['Name'] + '_' + entry['Version'] + '.ab')
+        if not path.exists():
+            raise FileNotFoundError('Minion command bundles are missing; rerun setup to download them')
+        result.extend(recover_bundle(path, entry['Name'].split('/')[2]))
+    return result
 
 
 def recover_special_skills(bundle_root):

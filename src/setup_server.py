@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from scripts.adapt.adapt_debug_master_data import adapt_debug_master_data
-from scripts.adapt.master_data.special_skill import sequence_bundle_names
+from scripts.adapt.master_data.special_skill import sequence_bundle_names, minion_command_bundle_names
 from scripts.adapt.adapt_debug_scenario import adapt_debug_scenario_file, batch_adapt_scenario_folder
 from scripts.adapt.adapt_chronology_for_server import generate_character_chronology_json
 
@@ -271,7 +271,9 @@ def setup(asset_server_link, news_settings=None):
 
         print("Downloading costume special skill sequences")
         with (EXTRACT_FOLDER / 'manifest.json').open(encoding='utf-8') as stream:
-            special_skills = sequence_bundle_names(json.load(stream))
+            installed_manifest = json.load(stream)
+            special_skills = (sequence_bundle_names(installed_manifest)
+                              + minion_command_bundle_names(installed_manifest))
         download_manifest_files_from_asset_server([
             adapt_manifest_entry_for_server(entry) for entry in special_skills])
 
