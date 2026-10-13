@@ -39,9 +39,11 @@ src/data/user/top
 # Other files
 src/modules/
 src/post/
+!src/post/.gitkeep
 src/response_skeletons/
 
 src/asset_server_link.txt
+src/account_token.txt
 src/checkpoint.txt
 src/server_config.txt
 src/cmd server.bat

@@ -1,5 +1,6 @@
 import copy
 import json
+from pathlib import Path
 from enum import Enum
 
 from .user.UserEpisode_generator import generateUserEpisode
@@ -180,7 +181,7 @@ def generateUserEquipment(unlock_all=False):
         UserEquipmentData.append(BaseUserWeapon)
 
     if unlock_all:
-        EquipmentMasterData = load_json("./data/masterdata/EquipmentMasterData.json")
+        EquipmentMasterData = load_json("./src/data/masterdata/EquipmentMasterData.json")
         base_entry = copy.deepcopy(base_equipment)
 
         for master_entry in EquipmentMasterData:
@@ -217,7 +218,7 @@ def generateUserItem(unlock_all=False):
 
 
 def generateSaveFile(output_folder):
-    save_json(output_folder + "UserCharacter.json", generateUserCharacter())
-    save_json(output_folder + "UserEpisode.json", generateUserEpisode())
-    save_json(output_folder + "UserEquipment.json", generateUserEquipment(ALL_EQUIPMENT))
-    save_json(output_folder + "UserItems.json", generateUserItem())
+    save_json(output_folder / "UserCharacter.json", generateUserCharacter())
+    save_json(output_folder / "UserEpisode.json", generateUserEpisode())
+    save_json(output_folder / "UserEquipment.json", generateUserEquipment(ALL_EQUIPMENT))
+    save_json(output_folder / "UserItems.json", generateUserItem())

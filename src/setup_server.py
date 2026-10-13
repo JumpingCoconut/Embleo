@@ -3,6 +3,7 @@ import pathlib
 import requests
 import UnityPy
 import json
+from pathlib import Path
 
 from scripts.adapt.adapt_debug_master_data import adapt_debug_master_data
 from scripts.adapt.adapt_debug_scenario import adapt_debug_scenario_file, batch_adapt_scenario_folder
@@ -15,27 +16,46 @@ from scripts.generate.generate_save_file import generateSaveFile
 '''
 TODO
 
+Move to proper Path system
+- asset_server_link can be moved after server restructuring
+
 Add URL checks or something
 
 Make a selector for which part to setup, to not go through the entire process.
 For example:
-	Check if "download" folder exist
+    Check if "download" folder exist
 '''
 
+manifest = True
+download = True
+extract = True
+adapt_master_data = True
+adapt_scenario = True
+generate = True
+save_data = True
+
 # Download and extract manifest from the asset server
-asset_server_link_file = "./asset_server_link.txt"
+path_cwd = Path.cwd()
+
+asset_server_link_file = path_cwd / "src" / "asset_server_link.txt"
 asset_server_link = ""
 
-DOWNLOAD_FOLDER = "./data/download/"
-EXTRACT_FOLDER = "./data/extract/"
+DATA_FOLDER = path_cwd / "src" / "data"
+DOWNLOAD_FOLDER = DATA_FOLDER / "download"
+EXTRACT_FOLDER = DATA_FOLDER / "extract"
+
+CHRONOLOGY_FOLDER = DATA_FOLDER / "chronology"
+MASTER_DATA_FOLDER = DATA_FOLDER / "masterdata"
+SAVE_DATA_FOLDER = DATA_FOLDER / "user"
 
 manifest_version = "fd2ab21941c4f074bb19997e67f62eb1"
 manifest_file_name = "manifest_{0}.ab".format(manifest_version)
 
+
 # Functions
 
 def load_asset_server_url():
-    if os.exist(asset_server_file):
+    if os.exist(asset_server_link_file):
         print("Found file")
 
 
@@ -44,10 +64,10 @@ def make_placeholder_link_file():
 
 
 def does_file_exist(path):
-	if os.path.isfile(path):
-		return True
+    if os.path.isfile(path):
+        return True
 
-	return False
+    return False
 
 
 def download_file(url, output_folder=DOWNLOAD_FOLDER, force_redownload=False):
@@ -56,7 +76,7 @@ def download_file(url, output_folder=DOWNLOAD_FOLDER, force_redownload=False):
     # Save file at path
     # print(file_name_without_server_url)
 
-    output_file_path = output_folder + file_name_without_server_url
+    output_file_path = output_folder / file_name_without_server_url
 
     os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
 
@@ -76,7 +96,6 @@ def download_file(url, output_folder=DOWNLOAD_FOLDER, force_redownload=False):
         print("File not found:", url)
 
     file_data = response.content
-
 
     with open(output_file_path, "wb") as of:
         of.write(file_data)
@@ -121,7 +140,7 @@ def extract_file(file_path, output_folder=EXTRACT_FOLDER):
 
             # print(short_path)
 
-            output_file_path = output_folder + short_path + ".json"
+            output_file_path = output_folder / (short_path + ".json")
 
             # make sure that the dir of that path exists
             os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
@@ -137,7 +156,7 @@ def adapt_manifest_entry_for_server(entry):
     return asset_name + "_" + version + ".ab"
 
 
-def get_all_files_in_folder_manifest(path_to_manifest_json, folder, exclude=""):
+def get_all_files_in_folder_manifest(folder, exclude="", path_to_manifest_json=(EXTRACT_FOLDER / "manifest.json")):
     manifest_data: dict
 
     with open(path_to_manifest_json, "r") as f:
@@ -169,21 +188,21 @@ def download_manifest_files_from_asset_server(file_list):
 def generate_master_data():
     print("= = = Generating other master data = = =")
 
-    master_data_path = "./data/masterdata/"
+    master_data_path = DATA_FOLDER / "masterdata"
 
     print("Generating Episode Master Data")
-    generate_episode_master_data(master_data_path)
+    generate_episode_master_data(master_data_path, CHRONOLOGY_FOLDER)
 
     # LevelCurves
-    print("Generating Level Curves")
+    print("Generating Character Level Curves")
     char_status_file_name = "TemporaryLevelStatusCurveCharacterMasterData.json"
-
-    with open(master_data_path + char_status_file_name, "w") as f:
+    with open(master_data_path / char_status_file_name, "w") as f:
         curve_data = generate_character_curve_list()
         json.dump(curve_data, f, indent=4)
 
+    print("Generating Equipment Level Curves")
     equip_stats_file_name = "TemporaryLevelStatusCurveEquipmentMasterData.json"
-    with open(master_data_path + equip_stats_file_name, "w") as f:
+    with open(master_data_path / equip_stats_file_name, "w") as f:
         curve_data = generate_equipment_curve_list()
         json.dump(curve_data, f, indent=4)
 
@@ -204,7 +223,7 @@ def get_asset_server_link():
             if asset_server_link == "":
                 print("Saved Asset Server URL is empty")
             else:
-                print("Found Asset Server URL in", asset_server_link_file, ":", asset_server_link)
+                print("Found Asset Server URL in", asset_server_link_file)
                 is_saved_url_found = True
                 is_url_valid = True
 
@@ -226,15 +245,6 @@ def get_asset_server_link():
     return asset_server_link
 
 
-manifest = True
-download = True
-extract = True
-adapt_master_data = True
-adapt_scenario = True
-generate = True
-save_data = True
-
-
 def setup(asset_server_link):
 
     if manifest:
@@ -242,7 +252,7 @@ def setup(asset_server_link):
         # Download manifest
         download_file(asset_server_link + manifest_file_name)
         # Extract manifest
-        extract_file(DOWNLOAD_FOLDER + manifest_file_name)
+        extract_file((DOWNLOAD_FOLDER / manifest_file_name).as_posix())
 
     # Downloading and extracting files
 
@@ -250,19 +260,18 @@ def setup(asset_server_link):
         print("Downloading necessary files...")
         # Download masterdatadebug files
         print("Downloading masterdatadebug")
-        MasterDataDebug_files = get_all_files_in_folder_manifest(EXTRACT_FOLDER + "manifest.json", "masterdatadebug/")
+        MasterDataDebug_files = get_all_files_in_folder_manifest("masterdatadebug/")
         download_manifest_files_from_asset_server(MasterDataDebug_files)
 
         # Download masterdata files
         print("Downloading masterdata")
-        MasterData_files = get_all_files_in_folder_manifest(EXTRACT_FOLDER + "manifest.json", "masterdata/",
+        MasterData_files = get_all_files_in_folder_manifest("masterdata/",
                                                             exclude="masterdata/episode/")
         download_manifest_files_from_asset_server(MasterData_files)
 
         # japanese chronology, single file
         print("Downloading chronology")
-        Chronology = get_all_files_in_folder_manifest(EXTRACT_FOLDER + "manifest.json",
-                                                      "lang_ja/texts/commonterm/chronology")
+        Chronology = get_all_files_in_folder_manifest("lang_ja/texts/commonterm/chronology")
         download_manifest_files_from_asset_server(Chronology)
 
     # Extract downloaded AssetBundles
@@ -275,24 +284,25 @@ def setup(asset_server_link):
             extract_file(str(path))
 
     if adapt_master_data:
-        adapt_debug_master_data(EXTRACT_FOLDER)
+        adapt_debug_master_data(EXTRACT_FOLDER, MASTER_DATA_FOLDER)
 
-        chronology_output_folder = "./data/chronology/"
-        generate_character_chronology_json(EXTRACT_FOLDER + "lang_ja/texts/commonterm/Chronology.json", chronology_output_folder)
+        generate_character_chronology_json(EXTRACT_FOLDER / "lang_ja/texts/commonterm/Chronology.json",
+                                           CHRONOLOGY_FOLDER)
 
     if adapt_scenario:
-        scenario_output_folder = "./data/masterdata/scenario/"
-        batch_adapt_scenario_folder(EXTRACT_FOLDER + "/masterdatadebug/scenario/", scenario_output_folder)
+        scenario_output_folder = DATA_FOLDER / "masterdata" / "scenario"
+        batch_adapt_scenario_folder(EXTRACT_FOLDER / "masterdatadebug/scenario", scenario_output_folder)
 
     if generate:
         generate_master_data()
 
     if save_data:
-        save_data_path = "./data/user/"
-        generateSaveFile(save_data_path)
+        generateSaveFile(SAVE_DATA_FOLDER)
 
 
 if __name__ == "__main__":
+    print("Current working directory", os.getcwd())
+
     asset_server_link = get_asset_server_link()
 
     print("Asset Server URL:", asset_server_link)
