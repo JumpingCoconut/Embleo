@@ -240,6 +240,8 @@ Debug sequences alone omit the combat payloads for equipment-specific Mystic Art
 
 Indices address master payloads, not timestamps. Preserve `ClipIndex`, sparse indices, nested projectile/summon settings, and the timeline's order. Repeated payloads at the same index keep the first occurrence, matching native `AttackSequenceData.AddClipData`; different payload families can share the same index. The shared hit settings retain the first occurrence. The manifest selects the installed bundle version, and missing bundles or unrecognized combat clips fail generation rather than silently producing incomplete damage data.
 
+The adapter also emits a `ResourceList` row per character for external assets referenced by the timelines, including nested summon effects and effect-call clips. Combat settings and resource preloading are separate client paths: a summon can require its effect prefab to exist before it can create the damaging object. The JSON wrapper contains one `ResourceList` object with `id` and `values`, rather than an array; each external path has resource type `1` (`Path`). References shared across costumes are deduplicated.
+
 After the bundles are installed, regenerate only sequence masters from `src/`:
 
 ```powershell

@@ -15,6 +15,13 @@ def adapt_debug_sequence_list(sequence_list):
 
     for (ID, category), entries in grouped.items():
         setting = {category: entries}
+        if category == 'ResourceList':
+            resources = {}
+            for entry in entries:
+                for resource in entry['values']:
+                    resources.setdefault((resource['type'], resource['value']), resource)
+            # ResourceListWrapper contains one ResourceListInfo, not an array.
+            setting = {category: {'id': ID, 'values': list(resources.values())}}
 
         new_seq = {}
 

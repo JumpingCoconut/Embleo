@@ -36,6 +36,20 @@ def recover_sequence(owner, sequence, resolve):
     name = sequence['m_Name']
     attack, update, moves = {}, {}, {}
     base = None
+    resources = {}
+
+    def collect_resources(value):
+        if isinstance(value, list):
+            for item in value:
+                collect_resources(item)
+        elif isinstance(value, dict):
+            for field, item in value.items():
+                # Client ResourceDataType.Path registers external prefab and
+                # attack-setting assets before timeline behaviours create them.
+                if isinstance(item, str) and item.startswith('External/'):
+                    resources.setdefault((1, item), {'type': 1, 'value': item})
+                else:
+                    collect_resources(item)
 
     def put(target, index, field, value):
         if not isinstance(index, int) or not 0 <= index < 4096:
@@ -48,6 +62,7 @@ def recover_sequence(owner, sequence, resolve):
     for track in sequence['tracks']:
         for clip in track['clips']:
             data = resolve(clip['behaviourPrefab'])
+            collect_resources(data)
             kind = data['m_Name']
             if kind == 'Animator Clip' and data.get('isAttack'):
                 base = deepcopy(data['attackBaseInfo'])
@@ -91,6 +106,8 @@ def recover_sequence(owner, sequence, resolve):
             'direction': [moves.get(i, {}).get('direction', {'x': 0, 'y': 0, 'z': 0})
                           for i in range(count)],
             'speed': [moves.get(i, {}).get('speed', 0) for i in range(count)]}]})
+    if resources:
+        result.append({'ResourceList': [{'id': owner, 'values': list(resources.values())}]})
     return result
 
 

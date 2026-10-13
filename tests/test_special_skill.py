@@ -38,10 +38,39 @@ class SpecialSkillTests(unittest.TestCase):
         wire = adapt_debug_sequence_list(rows)
         self.assertEqual(len(wire), len({(r['CharacterId'], r['Category']) for r in wire}))
         for r in wire:
+            if r['Category'] == 'ResourceList':
+                info = json.loads(r['Data'])['ResourceList']
+                self.assertEqual(info['id'], r['CharacterId'])
+                self.assertTrue(info['values'])
+                continue
             for s in json.loads(r['Data'])[r['Category']]:
                 self.assertEqual(s['id'], r['CharacterId'])
                 if 'clipDatas' in s:
                     self.assertEqual(s['totalClipCount'], len(s['clipDatas']))
+
+        august = next(r for r in wire if r['CharacterId'] == 'pl010'
+                      and r['Category'] == 'ResourceList')
+        self.assertIn({'type': 1, 'value': 'External/Effects/SpecialSkill/eff_plsp010_04001shock'},
+                      json.loads(august['Data'])['ResourceList']['values'])
+
+    def test_summon_resources_include_circle_and_merge_costumes(self):
+        circle = 'External/Effects/SpecialSkill/circle'
+        wand = 'External/Effects/SpecialSkill/wand'
+        seq, resolve = timeline('SpecialSkill@a', [
+            dict(m_Name='Animator Clip', isAttack=1, attackBaseInfo={}),
+            dict(m_Name='Summon Clip', clipSettings={'ClipIndex': 0,
+                 'BulletEffectSettings': {'PrefabPath': circle},
+                 'BulletAttackSettings': {'AttackDamageRate': 7}}, hitSettings={}),
+            dict(m_Name='EffectCall Clip', effectSettings=[{'PrefabPath': wand},
+                                                         {'PrefabPath': circle}])])
+        recovered = recover_sequence('pl010', seq, resolve)
+        wire = adapt_debug_sequence_list(recovered + [
+            {'ResourceList': [{'id': 'pl010', 'values': [{'type': 1, 'value': circle}]}]}])
+        resource = next(r for r in wire if r['Category'] == 'ResourceList')
+        self.assertEqual(json.loads(resource['Data']), {'ResourceList': {'id': 'pl010',
+                         'values': [{'type': 1, 'value': circle}, {'type': 1, 'value': wand}]}})
+        summon = recovered[0]['AttackSetting'][0]['clipDatas'][0]['clip_Summon']
+        self.assertEqual(summon['BulletAttackSettings']['AttackDamageRate'], 7)
 
     def test_sparse_indices_and_costume_keys_preserve_payloads(self):
         clips = [dict(m_Name='Animator Clip', isAttack=1, attackBaseInfo={'SearchDistance': 9}),
