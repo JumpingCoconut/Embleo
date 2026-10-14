@@ -30,7 +30,7 @@ from scripts.adapt.adapt_debug_episode_data import fill_episode_layout_group_by_
 
 # from server_scripts.challenge_mission.challenge_mission import challenge_mission
 
-DISABLE_LEVELUPCAMP = True
+DISABLE_LEVELUPCAMP = False
 DISABLE_EVENTS = True
 DISABLE_GACHA = True
 DISABLE_SHOP = True
@@ -38,9 +38,11 @@ DISABLE_CHALLENGE_MISSIONS = True
 
 DISABLE_SCENARIOS = False
 
-SKIP_BATTLES = True
+SKIP_BATTLES = False
 SKIP_VIDEOS = False
 SKIP_ROUTE_FORK_MERGE = False
+
+ADD_BASTIEN_EPISODE = True
 
 FAKE_CHECKPOINT_PATH = "./checkpoint.txt"
 
@@ -296,7 +298,7 @@ def fill_scenario_group_from_adapted_scenario(episode_id):
 		"MiniGames": []
 	}
 
-	if "sc" in episode_id:
+	if ("sc" in episode_id) or ("exp" in episode_id):
 		adapted_episode_scenario = secret_mission_base_scenario
 	else:
 		adapted_episode_scenario = load_json("./data/masterdata/scenario/{0}.json".format(episode_id))
@@ -426,7 +428,7 @@ skip_scenario = []
 def fill_scenario_list_from_adapted_scenario(episode_id):
 	scenarios = []
 
-	if "sc" in episode_id:
+	if ("sc" in episode_id) or ("exp" in episode_id):
 		adapted_episode_scenario = secret_mission_base_scenario
 	else:
 		adapted_episode_scenario = load_json("./data/masterdata/scenario/{0}.json".format(episode_id))
@@ -814,19 +816,27 @@ def level_up_camp_start():
 
 	start_data["CharacterDetail"] = fill_episode_character_detail()
 
+	selected_character_data = {}
+	for entry in start_data["CharacterDetail"]["characters"]:
+		if entry["CharacterId"] == character_id:
+			selected_character_data = entry
+
+	start_data["CharacterDetail"]["characters"] = [selected_character_data]
+
 	start_data["CharacterDetail"]["baseVisual"] = {
-		"settings": [{
-			"ScenarioNo": 1,
-			"Ids": [
-				"pl003_05_001"
-			]
-		}
+		"settings": [
+			{
+				"ScenarioNo": 1,
+				"Ids": [
+					character_id + "_01_001"
+				]
+			}
 		],
 		"characters": [{
-			"VisualId": "pl003_05_001",
-			"CharacterId": "pl003",
+			"VisualId": character_id + "_01_001",
+			"CharacterId": character_id,
 			"VisualEquipment": [
-				"pl003_05_001",
+				character_id + "_04_001",
 				"wp001_04_001",
 				"",
 				"",
@@ -845,7 +855,7 @@ def level_up_camp_start():
 
 	# EpisodeDetail
 	start_data["EpisodeDetail"] = fill_episode_detail_by_episode_id(training_mission_id)
-
+	start_data["EpisodeDetail"]["LayoutGroup"]["CheckPoints"][0]["LoadPlayers"] = [character_id]
 	# EpisodeDetailUser
 
 	start_data["EpisodeDetailUser"] = {
@@ -881,7 +891,7 @@ def level_up_camp_start():
 
 	# MissionDetail
 	start_data["MissionDetail"] = {
-		"TrainingMissionId": "exp_mission_001",
+		"TrainingMissionId": training_mission_id,
 		"Category": 1,
 		"LocationId": "IC_VI01",
 		"Detail": {
@@ -889,7 +899,15 @@ def level_up_camp_start():
 			"TimerCountType": 1,
 			"Finishes": [
 				{
-					"Type": 0,
+					"Type": 2,
+					"Flag": 1,
+					"Option": ""
+				},{
+					"Type": 3,
+					"Flag": 0,
+					"Option": ""
+				},{
+					"Type": 2,
 					"Flag": 1,
 					"Option": ""
 				}],
@@ -1316,7 +1334,9 @@ def top_add_episodes():
 
 			# print(episode_id)
 
-			if episode_id in unreleased_episodes:
+			if episode_id == "pl011_ep002" and ADD_BASTIEN_EPISODE:
+				pass
+			elif episode_id in unreleased_episodes:
 				continue
 
 			episode_order = {
