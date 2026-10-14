@@ -107,6 +107,28 @@ class SpecialSkillTests(unittest.TestCase):
         summon = recovered[0]['AttackSetting'][0]['clipDatas'][0]['clip_Summon']
         self.assertEqual(summon['BulletAttackSettings']['AttackDamageRate'], 7)
 
+    def test_hit_identifiers_and_sound_keys_use_client_resource_resolvers(self):
+        hit = 'External/Effects/SpecialSkill/eff_plsp008_05002_hitscale'
+        seq, resolve = timeline('SpecialSkill@a', [
+            dict(m_Name='Animator Clip', isAttack=1, attackBaseInfo={}),
+            dict(m_Name='Attack Clip', attackClipSettings=dict(ClipIndex=0,
+                 HitEffect=hit, OWWallHitEffect=hit, HitSE='HIT_Magic_Strong'), hitSettings={}),
+            dict(m_Name='SoundCall Clip', soundKey='se300031', soundKeyList=['se300031'])])
+        wire = adapt_debug_sequence_list(recover_sequence('pl010', seq, resolve))
+        info = json.loads(next(r['Data'] for r in wire if r['Category']=='ResourceList'))['ResourceList']
+        self.assertEqual(info['values'], [dict(type=21, value=hit),
+            dict(type=20, value='HIT_Magic_Strong'), dict(type=10, value='se300031')])
+
+    def test_voice_actions_are_registered_separately_from_sounds(self):
+        seq, resolve = timeline('SpecialSkill@a', [
+            dict(m_Name='Animator Clip', isAttack=1, attackBaseInfo={}),
+            dict(m_Name='VoiceCall Clip', soundKey='SpecialSkill', soundKeyList=['SpecialSkill']),
+            dict(m_Name='SoundCall Clip', soundKey='se300031', soundKeyList=[])])
+        wire = adapt_debug_sequence_list(recover_sequence('pl010', seq, resolve))
+        info = json.loads(next(r['Data'] for r in wire if r['Category']=='ResourceList'))['ResourceList']
+        self.assertEqual(info['values'], [dict(type=30, value='SpecialSkill'),
+            dict(type=10, value='se300031')])
+
     def test_sparse_indices_and_costume_keys_preserve_payloads(self):
         clips = [dict(m_Name='Animator Clip', isAttack=1, attackBaseInfo={'SearchDistance': 9}),
                  dict(m_Name='Attack Clip', attackClipSettings={'ClipIndex': 3, 'AttackDamageRate': 7},

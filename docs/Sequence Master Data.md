@@ -240,7 +240,7 @@ Debug sequences alone omit the combat payloads for equipment-specific Mystic Art
 
 Indices address master payloads, not timestamps. Preserve `ClipIndex`, sparse indices, nested projectile/summon settings, and the timeline's order. Repeated payloads at the same index keep the first occurrence, matching native `AttackSequenceData.AddClipData`; different payload families can share the same index. The shared hit settings retain the first occurrence. The manifest selects the installed bundle version, and missing bundles or unrecognized combat clips fail generation rather than silently producing incomplete damage data.
 
-The adapter also emits a `ResourceList` row per character for external assets referenced by the timelines, including nested summon effects and effect-call clips. Combat settings and resource preloading are separate client paths: a summon can require its effect prefab to exist before it can create the damaging object. The JSON wrapper contains one `ResourceList` object with `id` and `values`, rather than an array; each external path has resource type `1` (`Path`). References shared across costumes are deduplicated.
+The adapter also emits a `ResourceList` row per character for referenced resources, including nested summon effects and effect-call clips. Combat settings and resource preloading are separate client paths: a summon can require its effect prefab to exist before it can create the damaging object. The JSON wrapper contains one `ResourceList` object with `id` and `values`, rather than an array. Prefab paths use type `1` (`Path`); sounds use `10` (`SE`), hit sounds use `20` (`HitSE`), hit effects use `21` (`HitEffect`), and voice actions use `30` (`VoiceAction`). Hit identifiers can be aliases rather than literal bundle paths. References shared across costumes are deduplicated by type and value.
 
 Charles (`pl021`) also needs the normal `Attack4` and `Charge4` sequence bundles: the debug masters contain his minions' attacks but omit the owner commands. Recovery preserves each `MinionOrder Clip` at its separate `clipIndex`. `Charge4` targets the owner's enemy, selects `MinionUniqueAttack1`, and sets `isTerminate`; `Attack4` selects `MinionUniqueAttack2`. These values come from the bundles, rather than server-invented summon limits or damage rules.
 
@@ -259,8 +259,8 @@ each prefab's SequenceSetting and follows its animation bundle's action tracks.
 EnemyMove clips use timeline traversal indices because they have no serialized
 clipIndex. The installed manifest selects exact bundle versions.
 
-Recovered MoveSetting rows merge into existing enemy masters after debug
-adaptation. Existing attack rows and player/costume masters are preserved;
+Recovered MoveSetting rows merge into existing enemy masters during sequence
+adaptation, including CLI regeneration. Existing attack rows and player/costume masters are preserved;
 upstream's unfinished attack extraction must not emit empty attack payloads.
 The same setup runs in a normal src checkout and a flat runtime installation.
 Movement data verification does not establish that all enemy AI or camp waves

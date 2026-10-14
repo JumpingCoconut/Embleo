@@ -26,6 +26,21 @@ MINION_COMMAND_SEQUENCES = {
     'characters/player/pl021/sequences/charge4',
 }
 
+# Match ResourceDataType: hit identifiers pass through the client's hit-effect
+# or hit-sound resolver; they are not necessarily literal AssetBundle paths.
+RESOURCE_FIELDS = {
+    'HitEffect': 21, 'OWWallHitEffect': 21, 'OWTerminateEffect': 21,
+    'HitSE': 20, 'WallHitSE': 20,
+    'SeId': 10, 'SeIdAddBulletShot': 10, 'SeIdFinish': 10,
+    'ShotSE': 10, 'TerminateSE': 10, 'BulletSE': 10,
+    'soundKey': 10, 'soundKeyList': 10, 'SoundKey': 10, 'SoundKeyList': 10,
+    'BulletCreateSeName': 10, 'BulletCreateSeNames': 10,
+    'BulletCreatedLoopSeName': 10, 'BulletShotSeName': 10,
+    'FinishEffectSE': 10, 'StaySeName': 10, 'AreaEffect': 21,
+    'PrefabPath': 1, 'DisappearSE': 20, 'DisappearEffect': 21,
+    'EventAttackBreakSE': 20, 'EventAttackBreakEffect': 21,
+}
+
 
 def minion_command_bundle_names(manifest):
     return [entry for entry in manifest['m_Entries']
@@ -50,16 +65,26 @@ def recover_sequence(owner, sequence, resolve):
     base = None
     resources = {}
 
+    def register_resource(kind, value):
+        if isinstance(value, list):
+            for item in value:
+                register_resource(kind, item)
+        elif isinstance(value, str) and value:
+            resources.setdefault((kind, value), {'type': kind, 'value': value})
+
     def collect_resources(value):
         if isinstance(value, list):
             for item in value:
                 collect_resources(item)
         elif isinstance(value, dict):
             for field, item in value.items():
-                # Client ResourceDataType.Path registers external prefab and
-                # attack-setting assets before timeline behaviours create them.
-                if isinstance(item, str) and item.startswith('External/'):
-                    resources.setdefault((1, item), {'type': 1, 'value': item})
+                if field in RESOURCE_FIELDS:
+                    kind = RESOURCE_FIELDS[field]
+                    if field in ('soundKey', 'soundKeyList') and value.get('m_Name', '').startswith('VoiceCall'):
+                        kind = 30
+                    register_resource(kind, item)
+                elif isinstance(item, str) and item.startswith('External/'):
+                    register_resource(1, item)
                 else:
                     collect_resources(item)
 

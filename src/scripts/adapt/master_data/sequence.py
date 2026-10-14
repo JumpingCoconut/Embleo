@@ -71,6 +71,18 @@ def adapt_debug_sequences_master_data(input_file_path, output_folder, bundle_roo
     character_sequences = sorted(character_sequences, key=lambda x: x['CharacterId'])
     enemy_sequences = sorted(enemy_sequences, key=lambda x: x['EnemyId'])
 
+    # Keep CLI regeneration and fresh setup on the same sequence pipeline.
+    bundle_root = Path(bundle_root)
+    if (bundle_root / 'characters/enemy').exists():
+        from ..adapt_sequence_data import (
+            extract_all_SequenceSetting_files,
+            adapt_sequence_data_from_animation_data, merge_enemy_movement,
+        )
+        settings = bundle_root.parent / 'extract/SequenceSetting'
+        extract_all_SequenceSetting_files(bundle_root / 'characters', settings)
+        _, recovered = adapt_sequence_data_from_animation_data(settings, bundle_root / 'characters')
+        enemy_sequences = merge_enemy_movement(enemy_sequences, recovered)
+
     with open(output_folder / "CharacterSequenceMasterData.json", "w") as of:
         json.dump(character_sequences, of, indent=4)
 
