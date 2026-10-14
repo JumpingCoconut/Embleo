@@ -111,7 +111,7 @@ def adapt_episode_enemies_for_episode_layout(master_data, platoon_master_data):
 		if formation_id != "":
 			platoon = platoon_master_data[formation_id]
 
-			print("Applied Formation", platoon["_id"], "to", entry["_id"])
+			# print("Applied Formation", platoon["_id"], "to", entry["_id"])
 			layout_entry["Child"]["Formation"] = platoon["Formation"]
 			layout_entry["Child"]["FormationPadding"] = SerVec2toVec2(platoon["FormationPadding"])
 
