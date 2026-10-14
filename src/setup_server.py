@@ -29,15 +29,28 @@ For example:
     Check if "download" folder exist
 '''
 
-manifest = False
-download = False
-extract = False
-extract_sequences = False
+manifest = True
+download = True
+extract = True
+extract_sequences = True
 adapt_sequences = True
-adapt_master_data = False
-adapt_scenario = False
-generate = False
-save_data = False
+adapt_master_data = True
+adapt_scenario = True
+generate = True
+save_data = True
+
+DEBUG_CONFIG = False
+
+if DEBUG_CONFIG:
+    manifest = False
+    download = False
+    extract = False
+    extract_sequences = False
+    adapt_sequences = False
+    adapt_master_data = False
+    adapt_scenario = False
+    generate = False
+    save_data = False
 
 # Download and extract manifest from the asset server
 path_cwd = Path.cwd()
@@ -106,6 +119,7 @@ def download_file(url, output_folder=DOWNLOAD_FOLDER, force_redownload=False):
 
     with open(output_file_path, "wb") as of:
         of.write(file_data)
+        print("Downloaded", output_file_path)
 
 
 def extract_file(file_path, output_folder=EXTRACT_FOLDER):
