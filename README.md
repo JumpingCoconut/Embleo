@@ -5,19 +5,16 @@ Download this server (`Code > Download ZIP`) and extract the archive.
 ## Running the Game Server
 1. Install [Python](https://www.python.org/downloads/release/python-3147/)
 2. Download [UV package manager](https://github.com/astral-sh/uv/releases/tag/0.12.15) for you platform
-3. Extract the archive and copy `uv` into the `Embleo` folder (where README.md file is)
+2. Extract the archive and copy `uv` into the `Embleo` folder (where README.md file is)
 4. Double-click `run_setup.py` (`uv` will download necessary Python dependencies)
-5. Type in (copy-paste) **Asset Server URL** into the newly open window and press Enter.
-6. Optionally add a welcome notice shown in the game. Press Enter to use the suggested title and message, or type `n` to skip. Existing news stays unchanged.
-
-See [Server News](docs/Server%20News.md) for welcome-notice settings and built-in news sprites.
+6. Type in (copy-paste) **Asset Server URL** into the newly open window and press Enter.
 
 The script will then download necessary files from the specified **Asset Server**. Wait for it to finish.
 
 (TODO: write a guide for self-hosting assets)
 
-7. Open the `src` folder.
-8. Double-click `run_server.py` to start the **Game Server**.
+5. Open `src` folder
+6. Double-click `run_server.py` to start the **Game Server**.
 
 ## Patching APK
 A phone or emulator with Android 9-12 is required to install the game. Android 11 is recommended as it is confirmed working.
