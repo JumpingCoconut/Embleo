@@ -179,9 +179,9 @@ Back up the database with SQLite's backup facility or while every server using i
 | Follows and blocks | Persistent directed relationships, derived counts/flags, lists and ID/code or nickname search |
 | Direct chat | Persistent conversations, likes, destinations, read state and block enforcement |
 | Guilds and guild messages | Persistent membership, applications, roles, moderation, messages and likes; see [Multiplayer](Multiplayer.md) for limits |
-| Episode comments/likes | Fixtures or incomplete handlers |
+| Episode comments/likes | Persistent account-authenticated comments, likes and author-only deletion; see [Multiplayer](Multiplayer.md) for limits |
 | Emoji/stamps | Direct-message stamp type supported; no individual ownership/unlock enforcement |
-| Raids | Unavailable: typed empty discovery lists and explicit 501 for other PvE calls; Prizm transport/event/battle implementation required |
+| Raids | Explicitly configured Prizm runtime and event/battle providers support no-grants trials; unconfigured discovery is empty and other PvE calls return 501. Production reward/ranking policy and full two-client acceptance remain incomplete; see [Multiplayer](Multiplayer.md) |
 | Purchases | Disabled; purchase attempts do not create gifts |
 | Official linking and account recovery | Unavailable |
 

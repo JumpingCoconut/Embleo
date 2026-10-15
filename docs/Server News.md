@@ -1,12 +1,11 @@
 # Server News
 
-## Built-in notices
+## Editing notices
 
-Setup does not prompt for a welcome message or generate a server notice.
-Local setup leaves `src/offline_responses/api/news/list.json` unchanged.
-To customize news locally, edit that file separately from setup and preserve
-the existing entries and their field types. Automated hosts can manage news
-outside the setup process; no setup extension is required.
+Server notices are stored in the `News` array in
+`src/offline_responses/api/news/list.json`. Add or edit entries in that file,
+using a unique `NewsId` for each notice and preserving the existing field types.
+`StartAt` and `EndAt` define the publication window in Unix seconds.
 
 ## Adding built-in pictures to news
 
@@ -20,7 +19,7 @@ sprite markup, for example:
 
 `<sprite=N>` selects a registered picture from the viewer's default sprite
 asset. `<br>` adds a line break. Put the tags directly in the JSON string;
-do not HTML-escape their angle brackets. Setup does not modify these notices.
+do not HTML-escape their angle brackets.
 
 `sprite-example` in the News JSON demonstrates all 14 registered indices.
 The original announcements remain separate entries. Verify changes by opening

@@ -20,7 +20,7 @@ The start response uses the selected owned character and saved equipment, level
 and experience, plus HP from the existing native combat-stat calculator. The
 checkpoint party is replaced with that selected character. The mission keeps the
 existing server's five-minute training settings and the selected stage identity.
-These paths use setup's normal installed data and need no Docker-specific files.
+These paths use setup's installed game data.
 
 Camp startup also builds its party directly from `CharacterDetail.Characters`:
 the native `SecretMissionManager.<RequestLvUpCampStartApi>d__172.MoveNext`

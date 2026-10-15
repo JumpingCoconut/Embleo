@@ -1,6 +1,6 @@
 # Enemy parents and generators
 
-This investigation covers Bastien episode 1 (`pl011_ep001`) and the current episode adapter. It identifies the parent-formation defect and the client-side spawning paths. The adapter now resolves parent grids and padding, publishes explicit external child/summon definitions for release clients, and includes generator-only targets in episode enemy detail. These changes are checked against installed Bastien data; actual gameplay and a complete explanation for every generator failure remain unverified.
+The episode adapter resolves parent grids and padding, publishes explicit external child/summon definitions for release clients, and includes generator-only targets in episode enemy detail. This reference describes those data requirements and the client-side spawning paths, using Bastien episode 1 (`pl011_ep001`) as the installed-data example. Installed-data checks do not establish gameplay correctness or explain every generator failure.
 
 ## Who spawns the children?
 
@@ -16,13 +16,13 @@ The child/summon references remain enemy individual IDs. A separate network enem
 
 `Ext.<parent EpisodeEnemyId>.<enemy individual ID>`
 
-For example, the first barracks uses `Ext.EM_CP01_001-Barracks01.em0023_001_02`. The external row has `EnemyId = em0023_001_02`, network normal role `1`, appearance type `External = 2`, and appearance count `1`. It inherits the parent's group and scenario interval; its child and summon definitions are null. The adapter uses upstream commit `73ef88f`'s implementation and emits external definitions immediately after each parent or generator. It does not deduplicate repeated targets or reject collisions with placed episode IDs.
+For example, the first barracks uses `Ext.EM_CP01_001-Barracks01.em0023_001_02`. The external row has `EnemyId = em0023_001_02`, network normal role `1`, appearance type `External = 2`, and appearance count `1`. It inherits the parent's group and scenario interval; its child and summon definitions are null. The adapter emits external definitions immediately after each parent or generator. It does not deduplicate repeated targets or reject collisions with placed episode IDs.
 
 These are lookup definitions, not permanent standalone placements. Parent formation cells and the generator's count/position rules still control when and where children appear. The runtime constructs the same `Ext.` key and finds its corresponding construction data before creating a child. This is why a valid `SummonRule` and globally published individual master can still produce no soldiers when the external row is missing.
 
 The generator creation coroutine awaits parent-child creation before calling `CreateEnemySummon`. `SummonEnemyData.IsValid` requires a nonempty target; `CreateEnemyForSummon` additionally requires local or host authority. Single-player spawning should use the local authority path. These client gates must be inspected if spawning remains absent after complete external definitions are published.
 
-## Role numbers are already correct
+## Enemy role mapping
 
 | Extracted `_enemyType` | Network `RoleType` | Meaning |
 | --- | --- | --- |
@@ -30,17 +30,17 @@ The generator creation coroutine awaits parent-child creation before calling `Cr
 | 1 | 2 | Parent |
 | 2 | 3 | Generator |
 
-`src/scripts/adapt/episode_data/enemies.py` already adds one. Sending the extracted numbers directly would introduce the network `Unknown` role and shift the other roles.
+`src/scripts/adapt/episode_data/enemies.py` adds one to the extracted role. Sending the extracted numbers directly would introduce the network `Unknown` role and shift the other roles.
 
 The installed `pl011_ep001` extraction contains 277 normal, 132 parent, and 69 generator rows. These counts describe this installed extraction, not every version of the episode.
 
-## Parent formations: a confirmed adapter defect
+## Parent formation lookup
 
 The extracted child definition contains a **lookup key**, for example `FormationId = "3_1"`. Its formation is defined in:
 
 `src/data/extract/masterdatadebug/PlatoonMasterDataObject.json`
 
-That file contains `Datas` rows with `_id`, `Formation`, and `FormationPadding`. The former adapter sent the lookup key directly as `Child.Formation` and omitted `Child.FormationPadding`. The corrected adapter resolves the platoon from the installed master data before publishing both fields. The layout loader indexes the installed platoon rows by `_id` before passing them to the upstream enemy adapter. A missing referenced formation raises `KeyError`.
+That file contains `Datas` rows with `_id`, `Formation`, and `FormationPadding`. The adapter resolves the platoon from the installed master data and publishes the resolved grid as `Child.Formation` and its padding as `Child.FormationPadding`. The layout loader indexes the installed platoon rows by `_id` before passing them to the upstream enemy adapter. A missing referenced formation raises `KeyError`.
 
 Those fields have different meanings. In the network-data path, `EpisodeEnemyInfo.Setup` copies `Child.Formation` into the runtime formation contents. `ChildEnemyData.GetFormationData` splits those contents into rows, splits each row on commas, and attempts to parse each occupied cell as an integer. A string such as `"3_1"` is not a formation grid and produces no valid numbered cells.
 
@@ -60,17 +60,17 @@ For example, the installed platoon `3_1` has two `1` cells and a `0` anchor, wit
 
 ## Generators: data requirements and remaining uncertainty
 
-The adapter already publishes the extracted summon fields: target, initial count, minimum count, total count, offsets, ranges, named appearance point, death linkage, rotation, and additional-wave position parameters.
+The adapter publishes the extracted summon fields: target, initial count, minimum count, total count, offsets, ranges, named appearance point, death linkage, rotation, and additional-wave position parameters.
 
-`EnemyManager.CreateEnemySummon` checks `SummonEnemyData.IsValid`, reads `InitialAppearNum`, and calls `CreateEnemyForSummon(enemy, initialCount, false)`. The generator branch of `CreateExternalEnemyInfoList` creates a derived definition from the summon target individual. This is separate from the parent's formation grid; resolving platoon data alone does not supply the missing external summon definition. The release adapter now publishes that definition explicitly.
+`EnemyManager.CreateEnemySummon` checks `SummonEnemyData.IsValid`, reads `InitialAppearNum`, and calls `CreateEnemyForSummon(enemy, initialCount, false)`. The generator branch of `CreateExternalEnemyInfoList` creates a derived definition from the summon target individual. This is separate from the parent's formation grid; resolving platoon data alone does not supply the required external summon definition. The release adapter publishes that definition explicitly.
 
 In this installed episode, generators reference `em0023_001_02` and `em0011_001_03`. Both exist in `EnemyIndividualMasterData.json`. Neither is a matching episode `_id`; that is not, by itself, an error.
 
-The episode enemy-detail response previously omitted generator-only targets: `em0011_001_03` was absent from its collected set for this episode. `fill_enemy_detail_by_episode_id` now collects placed, parent-child and summon individual IDs, removing duplicates and empty IDs while preserving first occurrence order. The server also publishes the global individual masters. Correcting the detail list does not prove that it explains every generator failure, especially barracks targeting the already included `em0023_001_02`.
+`fill_enemy_detail_by_episode_id` collects placed, parent-child and summon individual IDs, removing duplicates and empty IDs while preserving first occurrence order. This includes generator-only targets such as `em0011_001_03` in this episode. The server also publishes the global individual masters. A complete detail list is not sufficient evidence of working generators: barracks targeting `em0023_001_02` also require their external definitions and client spawning prerequisites.
 
 Do not normalize zero summon limits without confirming their semantics. Some tower generators intentionally have `InitialAppearNum = 3`, `MinLimitNum = 0`, `TotalNum = 0`, `AppearPointName = "childpoint"`, and `DieWithChild = true`. Treating every zero total as “spawn nothing” would conflict with their nonzero initial count.
 
-## Verification of the correction
+## Verification
 
 - Inspect the actual episode-start response, not only the extracted JSON: parent grids and padding must be resolved, roles correct, and summon fields retained.
 - Check the individual-to-base-enemy master links and required model/AI assets for every target, including targets used only by generators.
@@ -98,7 +98,7 @@ Native ARM64 reference points (build-specific RVAs):
 | `EnemyManager.CreateEnemySummon` | `0x17D7F78` | Starts the initial summon count through `CreateEnemyForSummon` |
 | `EnemyManager.CreateEnemyForSummon` | `0x17D5C54` | Client summon creation path |
 
-The C# dumps supply type contracts and method addresses; the parsing, lookup, and initial-summon observations above were checked against native instructions. The earlier development correction was confirmed by a phone playtest at Bastien's first house. Field-level comparisons do not establish gameplay correctness for every generator or resumed checkpoint.
+The C# dumps supply type contracts and method addresses; the parsing, lookup, and initial-summon observations above were checked against native instructions. Phone-playtest evidence covers Bastien's first house, not every generator or resumed checkpoint. Field-level comparisons likewise do not establish gameplay correctness for all of those paths. Upstream commit `73ef88f` provides implementation provenance for external definitions.
 
 Focused checks: `python -m unittest discover -s tests -p test_episode_enemies.py`. Set `EMBLEO_TEST_RAID_DATA` to the installed data directory to include Bastien-specific formation, summon-count and target-dependency checks. The fixture checks do not include extracted game data.
 

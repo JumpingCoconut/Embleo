@@ -85,7 +85,7 @@ Implemented `/api/guild/` routes: `top`, `info`, `search`, `create`, `update`,
 - Guild blocks are separate from personal blocks. They prevent admission and
   remove pending applications; existing members must first be removed.
 - Profiles report the player's current guild name. Guild top returns actual
-  membership/applications instead of the former hardcoded guild.
+  membership and applications from the account database.
 - Guild messages require membership. Personal blocks hide messages between
   blocked players. Likes are idempotent; authors can delete their own messages,
   and leaders/officers can moderate others. Removing/disbanding a guild revokes
@@ -132,7 +132,7 @@ points or grant rewards from the client checksum/playlog alone.
 
 ## Raids / co-op PvE
 
-Raid support is developed in stages. Configured no-grants trials support
+Configured no-grants trials support
 native battles; production rewards and ranking remain incomplete. The
 recovered client uses two separate layers:
 
@@ -146,12 +146,12 @@ TCP/UDP credentials. The client contains a reliable hello exchange, UDP packet
 ciphering, relay/RPC modules and application-level lobby/battle messages.
 Returning only a room identifier from HTTP cannot satisfy that client path.
 
-Completion remains missing after transport game-over: native GameOverTask
+Completion after transport game-over uses a separate HTTP flow: native GameOverTask
 async94 (0x18A7D40) calls PrizmOutGameProcessor.PveEnd at0x18A8468 or
 PveRetire at0x18A83C4. PveEndRequest carries EpisodeToken, Playlog and
 ResultHash; PveRetireRequest carries EpisodeToken/Playlog. PveEndResponse
 contains Result, RankingScore, Rewards, RewardResult and SpecialDrops, while
-retire returns Result. Configured HTTP end/retire now dispatch through the
+retire returns Result. Configured HTTP end/retire dispatch through the
 listener control bridge; without a configured runtime they remain unavailable.
 Transport game-over tests therefore do not establish completed client raids.
 Account-scoped prepared-token validation and bounded completion payload handling
@@ -163,7 +163,7 @@ and retire flag. It must validate playlog/hash and implement durable atomic
 result/reward idempotency keyed by BattleId/account, including recovery after
 process loss or provider failure. The room cache is not persistent reward
 authority. Host-reported game-over alone does not validate rewards or playlog.
-`DurableCompletionProvider` now supplies the atomic persistence boundary:
+`DurableCompletionProvider` supplies the atomic persistence boundary:
 account save changes and a compact `PveCompletions.json` result artifact commit
 in one SQLite transaction. Concurrent or repeated submissions settle once;
 conflicting requests reject. Rendering failures roll back both save changes and
@@ -191,7 +191,7 @@ Providers without this hook retain detached in-room response caching. A SQLite
 regression changes inventory after completion, verifies the room retry reflects
 that change without another settlement, then removes the journal to verify
 that retry cannot grant the reward again.
-The installed TLS test now verifies these native nested snapshots; its empty
+The installed TLS test verifies these native nested snapshots; its empty
 optional collections and no-reward policy remain diagnostic configuration.
 Its installed-data branch also sends create, room-list, room-info, join, start
 and end through the real Flask app with two isolated bearer tokens. This
@@ -257,7 +257,7 @@ normal response hook records activity in a new transaction after completion.
 A real second-thread SQLite regression verifies completion writes succeed and
 other-account saves/activity behavior remain scoped.
 Requests cap playlog UTF-8 at2MiB, token512 characters, hash256 characters;
-Nonempty playlogs now verify the native envelope before provider dispatch:
+Nonempty playlogs require verification of the native envelope before provider dispatch:
 CalcPlayLogHash0x190C028 UTF8-encodes JSON and episode token, constructs
 HMACSHA256 with token bytes as key (0x190C110), hashes the original JSON bytes
 (0x190C124), and formats lowercase x2. BuildPlayLog0x1906300 prepends
@@ -296,12 +296,13 @@ links, including `EpisodeId`, `EpisodePveEventId` and `RequiredPower`.
 The top fixture currently has empty `events` and `pveEvents` arrays and no
 event tile. There is no `EventsMasterData` file or loader in this checkout;
 an event master-data source would need to feed these response fields. The
-normal episode generator only emits character and crossroads episodes, but
-that alone does not establish that a raid tile cannot be published: event
-registration is a separate path. All 18 `offline_responses/api/pve/` fixtures
-and `api/event/list` remain empty. Complete event configuration, battle
-handling and reward/ranking policy still need implementation. Publishing a
-tile is distinct from making room joining and battles work.
+normal episode generator only emits character and crossroads episodes; raid
+event registration uses `EventPublication` and explicit operator configuration.
+All 18 `offline_responses/api/pve/` fixtures and `api/event/list` are empty.
+Configured handlers supply event and battle data independently of those
+fixtures. Complete event configuration and reward/ranking policy remain
+operator responsibilities. Publishing a tile is distinct from making room
+joining and battles work.
 
 Native room-list and matching request constructors leave `Difficulty` at zero:
 `GetRoomList` at `0x36A07E4` and `GetMatchingList` at `0x36A0388` assign event
@@ -314,7 +315,7 @@ schedule, power, version and room visibility checks. Nonzero requests remain
 concrete tier selections. The catalog's literal zero-tier eligibility and
 selected-link room creation remain unchanged.
 
-The event-selection HTTP contracts narrow the next discovery milestone:
+The event-selection HTTP contracts are:
 
 | Route | Request fields | Response fields |
 | --- | --- | --- |
@@ -365,45 +366,44 @@ transport has supplied the service ID):
 Verification anchors: `RpcClient.Request<object, object>` at `0x25F5EE4`,
 `RpcClient.OnReceive` at `0x1B14F44`, `OnReceiveCommand` at `0x1B15070`,
 `HandleResponse` at `0x1B151F4`, and `Command.Read` at `0x1B3360C`.
-The prototype implements these envelopes and nested join/player payloads.
-Android compatibility remains unverified.
+The transport implements these envelopes and nested join/player payloads.
+Its TCP-first design uses the client's negotiated fallback. Omitting UDP takes
+a different early-return path and is not proof of a working fallback. Native
+protocol evidence and transport tests do not establish complete Android
+compatibility. The local implementation reproduces the protocol independently
+of the original Prizm backend; preserve normal certificate verification on
+the TLS endpoint.
 
-A TCP-first local Prizm emulator is therefore a plausible first prototype,
-using the client's negotiated fallback. This is an implementation inference
-from the native path, not a tested compatibility result. Omitting UDP simply
-takes a different early-return path and is not proof of a working fallback.
-No original Prizm backend has been shown necessary to reproduce the protocol;
-the local replacement is still an unintegrated prototype. Preserve
-normal certificate verification when implementing its TLS endpoint.
+Without a configured PvE runtime, `room-list` and `get-recently-matching`
+return typed empty collections. Other PvE calls return HTTP 501. These fallback
+responses cannot award rewards or accept unchecked battle results; event
+exposure requires explicit configuration.
 
-`room-list` and `get-recently-matching` now return typed empty collections.
-Other PvE calls return HTTP 501 rather than acknowledging the old empty
-fixtures. They cannot award rewards or accept unchecked battle results.
-Event exposure remains disabled.
+Configuration and verification dependencies:
 
-Required implementation work, in dependency order:
-
-1. Finish the partially established native handshake/serialization contracts,
-   including credential validation, session identity, RPC response matching and
-   fallback acknowledgement. Keep extracted client artifacts outside the
-   repository. Prototype TCP hello, negotiated fallback and room join/info
-   before attempting synchronized gameplay; implement UDP cipher/key exchange
-   for the full transport.
-2. Implement and locally test the compatible transport, room membership,
-   heartbeat/expiry, reconnects, host handover and lobby notifications.
-3. Connect room create/join/list/matching HTTP handlers to that service;
+1. Verify native handshake/serialization contracts, including credential
+   validation, session identity, RPC response matching and fallback
+   acknowledgement. Keep extracted client artifacts outside the repository.
+   TCP hello, negotiated fallback and room join/info are prerequisites for
+   synchronized gameplay; full UDP transport requires cipher/key exchange.
+2. Verify transport, room membership, heartbeat/expiry, reconnects, host
+   handover and lobby notifications.
+3. Configure room create/join/list/matching HTTP handlers with that service;
    enforce public/private/guild visibility, version compatibility and capacity.
 4. Supply valid installed event and episode data, multiplayer character/enemy
-   setup and battle tokens. Implement host/battle synchronization.
+   setup and battle tokens. Verify host/battle synchronization.
 5. Validate completion logs against server-owned sessions, grant rewards once,
    then derive personal/character/guild scores and rankings.
 6. Playtest with at least two clients, including disconnect/rejoin and repeated
    result submissions, before advertising raids as supported.
 
-## Current implementation and handoff
+## Runtime components
 
-Raids remain disabled and unplayable. All raid modules below are local work;
-none are registered with Flask or started by `run_server.py`.
+Raid startup requires explicit operator configuration through `EMBLEO_PVE_CONFIG`.
+The configured runtime connects Flask handlers to the listener-owned service;
+without it, discovery uses empty fallback responses and battle calls are
+unavailable. No-grants trials exercise battles without granting production
+rewards or rankings. Full two-client playability requires separate verification.
 
 | Module | Implemented behavior |
 | --- | --- |
@@ -414,17 +414,18 @@ none are registered with Flask or started by `run_server.py`.
 | `prizm_lobby.py` | Numeric player/join/info payloads, readiness/join/leave/start notification codecs |
 | `prizm_rooms.py` | Locked membership, capacity/version checks, host handover, authoritative snapshots, readiness and battle-roster validation |
 | `prizm_room_service.py` | Shared-registry admission with rollback, room-scoped lobby fanout, departure revocation and handover |
-| `pve_http.py` | Configured authenticated room-list, room-info, create, join and matching adapters to listener-owned event admission; battle calls remain disabled |
-| `pve_events.py` | Installed episode-link eligibility and internal UTC publication/battle schedule gates; event responses not wired |
+| `pve_http.py` | Configured authenticated discovery, room admission, start, end, retire and heartbeat adapters to the listener-owned service |
+| `pve_events.py` | Installed episode-link eligibility and internal UTC publication/battle schedule gates |
+| `pve_publication.py` | Explicit event metadata/state publication for user/top, event/list and pve/list |
 | `prizm_runtime.py` | Shared service/registry/listener lifecycle; serialized startup/shutdown closes control, sockets and unused admissions |
 | `prizm_control.py` | Bounded HTTP-thread submission of create/join/discovery/leave to the listener loop, detached inputs, queued-request cancellation and shutdown |
-| `prizm_discovery.py` | Native HTTP room view and explicit public/private/guild access policy; routes not registered |
-| `prizm_admission.py` | Validated HTTP connection payload builder; no endpoint configuration or HTTP registration |
-| `prizm_battle.py` | Load-status request/notification codec and identity validation; no battle dispatch |
+| `prizm_discovery.py` | Native HTTP room views and explicit public/private/guild access policy |
+| `prizm_admission.py` | Validated HTTP connection payload builder; endpoint configuration is supplied by the operator |
+| `prizm_battle.py` | Native battle loading, object creation, status message codecs and identity validation |
 
 Room-service mutations and fanout must execute on the listener loop.
 `RoomControl` supplies a bounded thread-to-loop bridge; the explicit runtime owns its
-startup/shutdown. Optional Flask adapters require explicit configuration; production process startup is not wired yet. Cancellation prevents execution only
+startup/shutdown. Flask adapters and process startup require explicit operator configuration. Cancellation prevents execution only
 before the future starts running. Once execution starts, callers must collect
 the outcome rather than treating a response timeout as a rolled-back admission. Room admission callers must enforce
 authentication, event access, privacy and guild visibility. Socket loss retains
@@ -511,20 +512,20 @@ foreign, duplicate, missing or stale members and character substitutions.
 `PveStartResponse` requires EpisodeToken, CharacterDetail, EnemyDetail,
 EpisodeDetail, EpisodeDetailUser, MasterGroup, LimitTime, BgmId and BattleId.
 The PvE fixture is empty. The solo-start handler inserts placeholder HP/SP
-values and must not be reused unchanged for raids. Battle-start and load-status
-codecs are not dispatched; their existence does not prove prepared or
-synchronized combat. Other battle commands need separate request/notification
-mapping rather than indiscriminate echo.
+values and must not be reused unchanged for raids. Configured preparation and
+listener dispatch supply raid start data and load-status handling; codecs alone
+do not prove prepared or synchronized combat. Each battle command requires its
+own request/notification mapping rather than indiscriminate echo.
 
-### Next implementation steps
+### Runtime acceptance checks
 
-1. Wire the runtime into process startup/shutdown and authenticated create/join/list/leave
-   handlers, with event/privacy/guild gates and server-owned player statistics.
-2. Establish reconnect/expiry cleanup, character-change and room-chat behavior;
+1. Verify configured process startup/shutdown and authenticated create/join/list/leave
+   handlers, including event/privacy/guild gates and server-owned player statistics.
+2. Verify reconnect/expiry cleanup, character-change and room-chat behavior;
    verify room status enums and SearchId semantics before exposing them.
-3. Build valid installed event/episode and per-account battle data, issue battle
-   tokens, atomically commit the host start, then implement battle relay and
-   object ownership. Verify full UDP transport or Android TCP fallback behavior.
+3. Validate installed event/episode and per-account battle data, battle tokens,
+   atomic host start, battle relay and object ownership. Verify full UDP transport
+   or Android TCP fallback behavior.
 4. Implement validated, idempotent result/reward handling and scores/rankings.
 5. Playtest two Android clients, including disconnect/rejoin and repeated result
    submissions. Do not advertise playable raids before this succeeds.
@@ -623,7 +624,7 @@ RoomJoinRoute values are List=1, Matching=2 and Id=3. The implemented emulator
 access policy hides private rooms from list/matching and permits direct-ID
 admission; guild access requires nonempty current server-resolved shared
 membership. This policy is an implementation choice, not recovered backend
-behavior. `RoomService.join_checked` now checks authorized episode scope, route and
+behavior. `RoomService.join_checked` checks authorized episode scope, route and
 current host/viewer guilds under the room lock before membership changes.
 Guild lookup is configured on the service and executes on the listener loop;
 missing guild lookup denies guild admission. `RoomService.discover` uses the same access predicate under the room lock
@@ -633,7 +634,8 @@ excludes full rooms; explicit list discovery can show full rooms and their count
 preventing last-slot races. It returns real credentials or an explicit error;
 private rooms are never matching candidates. Callers must resolve event
 difficulty and power eligibility into the authorized episode scope first.
-Returned snapshots are detached. HTTP routes remain unwired.
+Returned snapshots are detached; configured HTTP adapters use the listener
+control bridge to access these operations.
 Unknown enum values fail closed without altering persisted account data.
 
 `EpisodeCatalog` validates native EpisodePveEvent link identities, installed
@@ -646,12 +648,12 @@ requires PublishStartAt <= StartAt < EndAt, and gates admission with the
 half-open battle window [StartAt, EndAt). Publication can precede battle start.
 Ended events remain publication candidates for ranking UI; ranking retention
 and wire date formatting are not implemented by this catalog. Unknown event
-links and absent schedules cannot grant admission. `RoomService.match_event` and `join_event` now compute scheduled eligibility
+links and absent schedules cannot grant admission. `RoomService.match_event` and `join_event` compute scheduled eligibility
 on the listener loop under the room lock, using a configured server-owned
 account eligibility provider. Runtime accepts this provider and the catalog;
 unconfigured event admission fails explicitly. No HTTP MaxPower input is used
-by these operations. Top/event/list/PvE HTTP responses and production startup
-remain unwired. Existing low-level trusted helpers do not apply schedule gates
+by these operations. Top/event/list/PvE HTTP responses use configured publication
+and runtime providers. Low-level trusted helpers do not apply schedule gates
 and must not be selected by HTTP admission handlers.
 
 `RoomService.create_event` resolves the requested EpisodeId to exactly one
@@ -663,7 +665,7 @@ Missing configuration cannot create a room. The runtime accepts the settings
 provider; low-level create remains a trusted prototype helper and must not be
 exposed as an HTTP admission operation.
 
-`/api/pve/room-list` now delegates to `app.config['PVE_HTTP']` when explicitly
+`/api/pve/room-list` delegates to `app.config['PVE_HTTP']` when explicitly
 configured with `PveHttp(runtime.control)`. Existing account authentication
 supplies the caller identity; request fields are EventId, Difficulty and
 PveVersion with the shared camel/Pascal alias validation. Invalid requests are
@@ -671,8 +673,9 @@ rejected before submission. The adapter submits read-only `discover_event`
 through the control bridge with a timeout and returns Rooms. The listener-owned
 room-view provider must supply valid event/profile metadata and wire expiry.
 Without PVE_HTTP configuration the route retains its typed empty collection.
-Production startup and event publication remain unwired; battle/result routes
-remain disabled.
+`EMBLEO_PVE_CONFIG` supplies runtime startup and event publication. Battle/result
+routes require the configured adapter and the appropriate preparation/completion
+providers.
 
 The configured HTTP adapter also serves `/api/pve/room-info`, taking EventId,
 RoomId and PveVersion. Listener-side `info_event` resolves the room episode's
@@ -687,7 +690,7 @@ It verifies public listing, direct-ID private room information, current power
 changes, event closure, runtime shutdown and cancellation of a queued read on
 timeout. Certificate/socket behavior is separately exercised by the real TLS
 listener test. Flask account authentication is covered in test_multiplayer.py;
-these layers still need a combined Android playtest after production wiring.
+combined Android behavior requires a separately configured two-client playtest.
 
 `RoomService.create_http` obtains the authoritative player from a configured
 listener-side provider, checks that its UserId matches the authenticated caller,
@@ -723,7 +726,7 @@ an empty retry response (three retries, 1000 milliseconds, emulator policy).
 Private and full rooms are excluded; view/connection construction failure rolls
 back membership and credentials. This is not an Android compatibility proof.
 
-Lobby command 9 now accepts only the authenticated host's UserId and reliable
+Lobby command 9 accepts only the authenticated host's UserId and reliable
 service 1000 transport. Native `AppRoomServiceBase.InGameStart` (`0x3283FA4`)
 sends this one-way command; `InGameStartRequest.Write` (`0x1B62F34`) writes
 UserId as field 1. A configured bounded, side-effect-free battle provider must
@@ -822,15 +825,16 @@ SummonEnemyIndividualIds. These formulas alone do not authorize arbitrary
 suffixes: dynamic spawn policy must resolve the declared individual links
 from the frozen layout/master group, including nested construction identities.
 
-PreparedEnemySpawns now validates these paths against the frozen layout and
+PreparedEnemySpawns validates these paths against the frozen layout and
 MasterGroup.enemyIndividuals. It resolves each `Ext.` step back to a layout
 root, requires a nonzero TransformConditions with matching TransformId for `/`,
 and a declared SummonEnemyIndividualIds target for `+`. Missing source/target,
 unrelated installed individuals, guest callers and excessive nesting reject.
-RoomService accepts this provider's boolean authorize method as well as the
-older exact-ID collections. Tests cover a transformed boss summoning a minion
-and attempts to use unrelated or wrong-kind links. Runtime assembly still
-needs integration; this does not verify Android spawning.
+RoomService accepts this provider's boolean authorize method as well as
+exact-ID collections. Tests cover a transformed boss summoning a minion
+and attempts to use unrelated or wrong-kind links. Runtime uses the configured
+battle provider's `enemy_spawns` unless an explicit enemy provider is supplied;
+these checks do not verify Android spawning.
 
 Child creation async144 (0x312C59C) selects an individual ID from the parent's
 ChildEnemyData using its formation entry's index, concatenates parent UniqueId,
@@ -913,7 +917,7 @@ larger reader value, event rejection propagates, and replacement ID/level
 override reach the validator. Separate account metadata reads remain explicit;
 this is not an atomic transaction across all participants.
 
-Explicit data_root now reaches gimmick loading as well as layout/scenario
+Explicit data_root reaches gimmick loading as well as layout/scenario
 loading. Its episode/location and stage-option dependencies resolve under that
 root instead of the process working directory. Existing calls without a root
 retain their data-directory behavior. An isolated loader test verifies all
@@ -1003,8 +1007,8 @@ one-way update and command6 notification match this sending path. Initial
 profile configuration remains distinct from a later client selection change.
 The lobby-scene caller establishing initial selection is described below.
 
-The lobby caller is now located: UILayoutPvERoom.updateCharacterIconList
-async34 actual0x317D018 reads MyPlayer.CharacterId (0x317E008). It uses
+UILayoutPvERoom.updateCharacterIconList (async34, actual0x317D018) is the
+lobby-scene caller and reads MyPlayer.CharacterId (0x317E008). It uses
 MultiPlayLobbyUtility.LastSelectCharacterId at static offset0x58 only when
 that player ID is empty (0x317E014/0x317E074); a nonempty admission profile
 therefore bypasses the saved local last-selection branch. When a last selection
@@ -1013,7 +1017,7 @@ UIPartsPvERoomContents.SetCharacter at0x317E29C. SetCharacter obtains the
 owned CharacterDetailInfo and copies ID, level, HP/attack/defense, visual
 equipment and spell arrays into MyPlayer (0x309B798..0x309B834), then sends
 CharacterChange at0x309BA0C. This identifies an initial-selection compatibility
-path: SnapshotRaidPlayers.admission now clears character identity, visuals,
+path: SnapshotRaidPlayers.admission clears character identity, visuals,
 spells, level and stats while retaining account/profile metadata. Its separate
 admission_eligibility reader calculates maximum owned character power before
 selection. Operator configuration can use these two bound callbacks; the
@@ -1048,7 +1052,7 @@ data and unknown episodes. Concrete display and expiry readers still belong
 in the operator configuration; room access is enforced by RoomService before
 calling the view provider.
 
-Targeted player/enemy recreation now compares the registered object identity
+Targeted player/enemy recreation compares the registered object identity
 without ToUserId. An unchanged object from its existing owner can be resent to
 an admitted peer, including repeated targeted sends, without creating another
 registry object. Untargeted duplicate creation remains suppressed. Changes to
@@ -1099,7 +1103,7 @@ TargetInfo internals and attack-sequence authorization still need verification.
 This relay does not implement damage application or results.
 
 Reliable BattleAction command 4 (`InGameServiceBase.BattleAction`, `0x1B61580`)
-now relays peer command 5 (receive branch `0x1B62444`) after the same registered
+relays peer command 5 (receive branch `0x1B62444`) after the same registered
 object-owner check. Fields are Guid, ActionInfo, Position, Rotation,
 MoveEnvironment, MoveStatus, TargetInfo and unsigned MoveSequenceNo
 (`BattleActionNotification.Write`, `0x3287654`). Container, transform and
@@ -1154,7 +1158,7 @@ SetupParams entry, with a separate magic-decoy branch. That branch
 (0x1998DF4) deserializes MinionSetupParamMagicDecoy at0x1999044 and uses its
 prefab paths. A production approval provider must therefore validate the
 installed skill/setup relationship and dynamic parameters, in addition to
-the existing GUID ownership checks. The isolated trial now permits the verified
+the existing GUID ownership checks. The isolated trial permits the verified
 static Bit binding described below; dynamic decoys remain a playability gap.
 
 SetupParams' native static initializer (0x343184C) registers four preset keys:
@@ -1189,7 +1193,7 @@ bundles matched the installed manifest sizes before inspection. This proves
 one timeline-to-preset relationship, not the equipped parameter count,
 runtime activation timing, full character coverage or Android peer spawning.
 
-PreparedBitSummons now implements that verified pl021 binding. It requires
+PreparedBitSummons implements that verified pl021 binding. It requires
 the frozen battle CharacterId and MasterDataId to be pl021, the registered
 parent to be that account's player object, preset Bit and empty parameters.
 The empty native constructor argument resolves to the empty string literal;
@@ -1304,8 +1308,10 @@ State and GameOver. Native InGamePvEScene.<GameOverConfirm>d__57.MoveNext
 (`0x18A7A2C`, check at `0x18A7B8C`) invokes OnGameOver only for State OutGame
 (1) with a populated GameOver. The emulator returns InGame (0) before a report
 and OutGame (1) with the latched report afterwards. Native GameOverReason values
-0..4 and signed damage/recovery integers are preserved. HTTP end/retire, reward
-validation, post-completion cleanup and Android results remain unimplemented.
+0..4 and signed damage/recovery integers are preserved. HTTP end/retire use the
+configured completion provider; settled-room cleanup and retry recovery are
+handled by the room service. Production reward validation and complete Android
+result-screen behavior require separate policy and verification.
 
 `pve_stats.py` implements the native base character level-curve calculation,
 verified at `CalcLevelStatus.Character` (`0x342D2A4`): floor(base ×
@@ -1314,9 +1320,9 @@ widening to double, matching `CharacterStatusParam.get_HPBase` (`0x360F72C`).
 CharacterBaseStats indexes installed character/curve tables and uses the saved
 character level without writing or altering saved loadouts. All 21 characters
 in the installed local user fixture resolve their curves and calculate; this
-is base-stat validation, not a per-account playtest. Equipment aggregation, passive effects,
-relationship/country modifiers, MP and total power remain required before this
-can supply authoritative raid admission or battle totals.
+is base-stat validation, not a per-account playtest. Raid admission and battle
+totals require the composed equipment, passive, relationship/country and power
+calculations described below. MP initialization follows a separate native path.
 
 EquipmentBaseStats implements `CalcLevelStatus.Equipment` (`0x342D37C`):
 equipment scales remain doubles, levels beyond the curve clamp to its final
@@ -1362,8 +1368,8 @@ ordered IDs, excludes the target ID, and compares master Faction, matching
 `HomeSceneUtility.GetRelationCharacters` (`0x32E3438`, comparison at
 `0x32E36E0`). It requires selected entries to be owned and installed, rejects
 duplicates, and preserves the input order without changing saves. Native UI
-sorting is unnecessary for the integer contribution sum. Passive initialization
-and account-provider integration remain required for complete raid stats.
+sorting is unnecessary for the integer contribution sum. Complete raid stats
+combine these contributions with installed passive effects and account snapshots.
 
 Passive arithmetic is implemented by passive_effect_value and passive_stat.
 `InputPassiveEffects` (`0x360F234`) resets bonuses and visits Costume,
@@ -1375,23 +1381,24 @@ zero. AttackBuff floors base * (1 + combined bonus) once. Resolving installed
 equipment buffs and their setup effect types remains necessary; these helpers
 accept resolved values and do not fabricate absent passive data.
 
-EquipmentPassives now resolves Buff lists from installed equipment masters
+EquipmentPassives resolves Buff lists from installed equipment masters
 against installed buff IDs and each owned item's SpLevel. It visits Costume,
 WeaponMain and AccessoryMain in native order, separates `magic:` entries as
 `Equipment.setupBuff` (`0x176F9DC`) does, and selects Setup_HP, Setup_Attack
 and Setup_Defense (verified in BuffEffectTypeHash initialization at
 `0x19E7F10`). Missing equipment ownership or installed buff IDs fails without
-save writes. All 21 local loadouts resolve their passive values. Complete stat
-composition and account battle-provider integration remain required.
+save writes. All 21 local loadouts resolve their passive values. CharacterCombatStats
+combines these passives with equipment and related-character contributions.
 
-CharacterCombatStats now composes HP, attack and defense using these installed
+CharacterCombatStats composes HP, attack and defense using these installed
 tables and explicitly supplied account saves. Local attack adds Weapons and
 AccessorysAttack to AttackBuff (`0x360FADC`); defense adds Costumes and
 AccessorysDefense to DefenseBuff (`0x360FC58`); HP adds AccessorysHP to HPBuff
 (`0x360FDC0`). Each related character contributes from its local stats once,
 without recursively including faction totals. All 21 local fixture characters
-calculate with equipment and passive effects. Account-provider integration,
-MP and Android battle verification remain outstanding. CharacterCombatStats.power
+calculate with equipment and passive effects. Account providers use detached
+snapshots; MP initialization is described below. Android battle behavior still
+requires verification. CharacterCombatStats.power
 returns total HP + attack + defense, verified at native get_Power (`0x361081C`),
 and rejects totals outside signed int32 rather than issuing invalid admission
 metadata. It does not use stale saved LastPower or client-provided power.
@@ -1400,10 +1407,11 @@ AccountCombatStats reads UserCharacter.json and UserEquipment.json through an
 account-scoped read callback and obtains ordering through an account-scoped
 provider. It returns computed HP/attack/defense/Power and rejects characters
 not owned by that account. The caller must provide a consistent save snapshot
-and a database connection appropriate to its thread. Runtime registration and
-native battle response assembly remain outstanding. Native MaxMP
+and a database connection appropriate to its thread. `BattleAssembler` pairs
+native battle responses with snapshots through `SnapshotCombatStats`. Native MaxMP
 (`CharacterDataBase.get_MaxMP`, `0x342F248`) reads the initialized
-IncreaseStatusInfo at object offset 0x50; its construction still needs tracing.
+IncreaseStatusInfo at object offset 0x50; its construction and MP ownership are
+described below.
 
 The two native SetStatus callers clarify MP ownership. UserDataManager.UpdateStatus
 (`0x177B28C`) constructs IncreaseStatusInfo and sets Level, HP, Attack and
@@ -1412,17 +1420,18 @@ CreatePrizmCharacterData path (`0x2FF44A4`) copies current HP and MP from
 serialized CharacterData into the local character, then copies those same
 values into IncreaseStatusInfo at `0x2FF4644` and `0x2FF464C`. Thus this path
 uses the transmitted MP as MaxMP; it does not derive it from a level curve.
-Trace the PvE start/player-data builder before choosing the transmitted SP
-value. Zero-initialized normal status is not evidence that raids should start
-with zero SP.
+The transmitted SP must follow the PvE start/player-data initialization path;
+zero-initialized normal status alone is insufficient evidence for its value.
+The setup and suspend-data paths below establish how HP/SP are applied.
 
 PlayUserCharacter carries CharacterId, Hp, Sp, Level and Exp (native offsets
 0x10, 0x18, 0x20, 0x28 and 0x30). MakeDeckCharacters (`0x177A84C`) looks up
 matching EpisodeDetailUser.playCharacters and, when its override flag is set,
 copies Level and Exp into CharacterData at `0x177ADDC` and `0x177ADEC` before
 calling UpdateStatus. Those loads are level/experience, not HP/SP. Raid start
-assembly must account for any episode level overrides; current calculators
-use saved levels. The HP/SP application path still needs verification.
+assembly accounts for episode level overrides through explicit server-selected
+inputs; saved levels are the default. The HP/SP application path is described
+below, with raid initialization ordering still requiring verification.
 
 CharacterCombatStats.character accepts explicit server-selected level_overrides
 for owned characters. Overrides apply to detached rows before local and
@@ -1463,13 +1472,14 @@ requests use that snapshot instead of recalculating from potentially changed
 account saves. Invalid creation requests do not freeze character values.
 Production battle preparation must still derive the initial snapshot from the
 same account state used for its HTTP start response.
-When a character provider is configured, preparation now resolves every
+When a character provider is configured, preparation resolves every
 member's CharacterData before freezing or broadcasting start. The provider
 receives detached PreparedBattle responses so it can derive the snapshot from
 the same start data. Invalid character fields leave both PreparedBattle and
 BattleCharacters unset. Valid snapshots are committed with the start responses
-and reused for object creation and recovery. Production providers still need
-to be implemented and registered.
+and reused for object creation and recovery. `installed_battle_assembler`
+supplies paired account snapshots; the runtime factory must register the
+appropriate installed providers and policy.
 
 Native WrapperCreatePlayer.UpdateParam (`0x2FF9060`) refreshes CharacterData
 HP and MP from the live BattlePlayer before recovery. Creation validation
@@ -1508,8 +1518,8 @@ boundary to detach character/equipment saves plus any explicitly requested
 ordering inputs. Its ordering resolver receives those same detached saves;
 the returned account-bound stat provider can calculate multiple characters
 without rereading live state. Level overrides operate on detached rows.
-Production battle assembly must prepare once per participant and use the same
-snapshot for HTTP start fields and transport CharacterData; it is not yet wired.
+`BattleAssembler` prepares once per participant and uses the same snapshot for
+HTTP start fields and transport CharacterData.
 `tests/test_account_snapshot.py` exercises real SQLite persistence, reads during
 an uncommitted WAL writer, cross-account rejection, and prepared stats remaining
 unchanged after committed save edits.
@@ -1540,8 +1550,8 @@ UpdateStatus then calls SetupDebugStatus (`0x342F554`) at `0x177B3C4`.
 Despite its name, this method unconditionally copies IncreaseStatusInfo HP/MP
 into current CharacterData HP/MP at `0x342F560`/`0x342F574`. On this normal
 path IncreaseStatusInfo receives calculated HP but no MP assignment, so
-initial CharacterData contains calculated HP and zero MP. This supersedes
-the earlier inference from SetStatus alone. PreparedCombatStats.initial_resources
+initial CharacterData contains calculated HP and zero MP; SetStatus alone is
+insufficient to establish those initial values. PreparedCombatStats.initial_resources
 models these pre-buff resources and respects episode level overrides.
 BattleCharaBase.Setup (`0x2EDBCC8`) delegates to OverrideStatus
 (`0x2EDBEA8`), which copies SetupParam HP/MP at offsets 0x1C/0x20
@@ -1578,7 +1588,7 @@ the callback, and does not assign HP/MP. The notification constructor
 without modifying its fields. PlayerController.Setup (`0x1866EF8`) delegates
 to BattlePlayer.Setup at `0x186727C`; this call must not be mistaken for
 a separate fill-to-maximum operation on the CharacterData being serialized.
-PreparedCombatStats.battle_character now builds paired HTTP PlayCharacter
+PreparedCombatStats.battle_character builds paired HTTP PlayCharacter
 and numeric transport CharacterData from the same frozen saved row and
 native-derived initial resources. Installed server policy must supply the
 resolved master ID, character name and default visuals; browser/client
@@ -1618,17 +1628,19 @@ tokens and common battle identity; this builder must not persist progress or
 publish tokens. BattlePreparation bundles both outputs for Rooms to validate
 and freeze atomically. Invalid or missing bundled characters leave the lobby
 unprepared. RoomService can create players from these frozen characters without
-a separate live character provider. This assembly boundary is implemented;
-installed episode response construction and production runtime wiring remain.
+a separate live character provider. InstalledBattleResponses and
+installed_runtime_factory provide episode response construction and runtime
+assembly, respectively.
 
-InstalledBattleResponses now composes the start envelope from an authorized
+InstalledBattleResponses composes the start envelope from an authorized
 episode loader and installed character/visual/master definitions. Its account
 fields come only from PreparedCombatStats, including UserItems.json (which
 must be requested by SnapshotCombatStats.extra_saves). BattleAssembler supplies
 one common BattleId; each member receives a distinct random EpisodeToken.
 The loader must supply complete fresh-run episode defaults, enemy details,
-time limit and music; the empty offline pve/start.json is not usable. The
-installed-data loader and production runtime registration are still required.
+time limit and music; the empty offline pve/start.json is not usable.
+RaidEpisodeLoader supplies installed data, and the operator configures runtime
+registration through the startup hooks described below.
 
 RaidEpisodeLoader (pve_episode.py) reads explicitly catalog-mapped scenario
 files and layout directories, independently of story battle-skip settings.
@@ -1643,10 +1655,11 @@ returns the PvE HTTP adapter only after listener startup. attach_runtime is an
 explicit startup hook, not automatic server registration. Shutdown revokes
 control, waits for cleanup and reports failures; startup timeout cancels the
 listener task. Loopback verified-TLS tests cover the actual Runtime lifecycle.
-Production providers, event publication and server startup configuration remain
-unassembled, and Android/two-client playability remains unverified.
+`installed_runtime_factory` assembles installed providers; event publication
+and server startup use explicit operator configuration. This lifecycle support
+does not establish complete Android/two-client playability.
 
-The server entry point now supports explicit opt-in startup through
+The server entry point supports explicit opt-in startup through
 EMBLEO_PVE_CONFIG, an operator-owned Python Flask configuration file. It must
 supply PVE_RUNTIME_FACTORY (constructing a fully configured Runtime),
 PVE_BIND_HOST, PVE_BIND_PORT and PVE_TLS (a server SSLContext). Event publication
@@ -1656,7 +1669,8 @@ by this hook. Keep private hosting configuration outside the repository.
 run_http starts transport before HTTP, disables the development reloader when
 raids are configured, and clears the adapter/stops transport when serving exits.
 Module import does not open listeners. Runtime remains disabled without this
-explicit configuration, and installed provider assembly still needs work.
+explicit configuration. `pve_setup.installed_runtime_factory` supplies installed
+provider assembly; the operator supplies resources and policy.
 
 COLOPL's public [2022 Prizm presentation](https://speakerdeck.com/colopl/colopltech-03-01)
 provides architectural context: slides 6 and 28 describe a locally runnable
@@ -1742,7 +1756,7 @@ collisions and missing replacement masters reject before freezing battle state.
 The related-character callback CreateStatusParam.b__138_1 (0x177E25C)
 skips owned replacement clones (0x177E350/0x177E354), the target ID and
 the target's BaseCharacterId (0x177E380/0x177E390), then compares faction.
-RelatedCharacters now applies these exclusions when receiving cloned rows;
+RelatedCharacters applies these exclusions when receiving cloned rows;
 otherwise the replacement could receive its own base character's contribution.
 The original saved rows remain unchanged. A regression checks the original
 and replacement targets alongside another character and its replacement alias.

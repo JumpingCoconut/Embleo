@@ -4,6 +4,11 @@ This folder contains reusable project and game-data knowledge for contributors. 
 
 When documenting behavior, distinguish verified code/data facts from inferred game semantics. Include the owning source path and a way to verify changes. Avoid treating a value observed in one episode or asset version as a universal rule.
 
+Describe current behavior and usage directly, rather than narrating changes or
+removed features. Keep technical constraints, compatibility requirements and
+validation limits explicit; use issues and change descriptions for development
+history.
+
 ## Project And Data
 
 - [Accounts and Saves](Accounts%20and%20Saves.md): client identity, per-player storage, profiles and verification.
@@ -11,7 +16,7 @@ When documenting behavior, distinguish verified code/data facts from inferred ga
 - [Sequence Master Data](Sequence%20Master%20Data.md): combat sequence structure, adapter behavior, and safe editing workflow.
 - [Sequence Master Data Further Information](Sequence%20Master%20Data%20Further%20Information.md): adapter details, ownership, and editing workflow.
 - [Errors](Errors.md): known errors and troubleshooting notes.
-- [Server News](Server%20News.md): setup welcome notice, built-in sprite pictures, and atlas discovery.
+- [Server News](Server%20News.md): editing notices, built-in emoji sprites, and the atlas reference.
 
 ## Episode Systems
 

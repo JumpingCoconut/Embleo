@@ -1,11 +1,16 @@
-> Storage update: checkpoint data now lives in each account's SQLite save record, rather than the shared `checkpoint.txt`. See [Accounts and Saves](../Accounts%20and%20Saves.md). The observations below concern episode UI and progression semantics; per-account persistence does not resolve all of those limitations.
+# Episode checkpoints and saves
+
+Checkpoint data is stored in each account's SQLite save record. See
+[Accounts and Saves](../Accounts%20and%20Saves.md) for storage and authentication.
+The sections below describe the checkpoint request contract, episode UI and
+progression semantics, including incomplete save and resume behavior.
 
 ## Checkpoints
 
 ### Current implementation and native request contract
 
 `server.fake_checkpoint` retains only an episode-to-scenario map. Account
-storage puts this map in SQLite under the legacy name `checkpoint.txt`; it
+storage puts this map in SQLite under the save key `checkpoint.txt`; it
 does not make it a complete episode save. Episode menu responses derive the
 Continue bit (32768) from this map without rewriting stored completion flags.
 
@@ -34,7 +39,9 @@ When episode is not started, there is Start button that pings `api/episode/start
 
 After starting an episode and exiting it, episode tile should have "Continue" plack and the "Start" button should turn into "Continue" button. 
 
-But where is this condition being stored? It is possible that if the game is saved properly, the game will automatically put the episode tile first, without server's involement.
+The server derives the Continue bit from the account's scenario map. Whether
+the client also moves the episode tile to the first position after a complete
+save requires verification.
 
 ### Retire
 `api/episode/retire` triggers when you exit an episode through `Menu -> Take a Break -> Stop Playing`
