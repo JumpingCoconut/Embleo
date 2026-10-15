@@ -77,6 +77,12 @@ def extract_SequenceSetting_files(file_paths, output_folder):
         else:
             SequenceSetting_dict[owner_id] = setting
 
+    # Merge Charle's Gems SequenceSetting with his own
+    if "pl021_bit" in SequenceSetting_dict and "pl021" in SequenceSetting_dict:
+        gem_action_list = SequenceSetting_dict["pl021_bit"]["sequenceNames"]
+        SequenceSetting_dict["pl021"]["sequenceNames"].extend(gem_action_list)
+        SequenceSetting_dict.pop("pl021_bit")
+
     # make sure that the dir of that path exists
     print(output_folder)
     os.makedirs(output_folder, exist_ok=True)

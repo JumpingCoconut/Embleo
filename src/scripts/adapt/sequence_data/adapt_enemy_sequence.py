@@ -66,13 +66,13 @@ def deref_tracks(tracks, path_id_objects):
     return parsed_tracks
 
 
-def extract_ActionData(animation_data, sequence_setting):
+def extract_track_data(animation_data, sequence_setting):
     container_base = "assets/variableresources/core/assetbundles/"
 
     container_path = container_base + sequence_setting["basePath"].lower()
 
     # Action containers, some enemies have the same action names in multiple container paths
-    action_containers = set(
+    sequence_containers = set(
         container_path + action_name.lower() + ".asset" for action_name in sequence_setting["sequenceNames"]
     )
 
@@ -81,7 +81,7 @@ def extract_ActionData(animation_data, sequence_setting):
     actions = []
 
     # Get action description files, that has same name as sequenceName
-    for path in action_containers:
+    for path in sequence_containers:
 
         if path not in container_groups:
             print("This asset is not in the animation", path)
@@ -111,10 +111,17 @@ def extract_ActionData(animation_data, sequence_setting):
     return actions
 
 
-def convert_move_track_to_move_data(move_track, action_name, owner_id):
+MOVE_CLIPS = [
+    "Move Clip",
+    "DodgingMove Clip",
+    "EnemyMove Clip"
+]
+
+
+def convert_move_track_to_move_data(move_track, sequence_name, owner_id):
     MoveSetting = {
         "id": owner_id,
-        "sequenceName": action_name,
+        "sequenceName": sequence_name,
         "totalMoveCount": 0,
         "moveCount": [],
         "direction": [],
@@ -127,7 +134,7 @@ def convert_move_track_to_move_data(move_track, action_name, owner_id):
     for clip in move_track["clips"]:
         # print(clip)
 
-        if clip["behaviour"]["m_Name"] == "EnemyMove Clip":
+        if clip["behaviour"]["m_Name"] in MOVE_CLIPS:
             MoveSetting["totalMoveCount"] += 1
             MoveSetting["moveCount"].append(clip_counter)
             MoveSetting["direction"].append(clip["behaviour"]["direction"])
@@ -138,10 +145,10 @@ def convert_move_track_to_move_data(move_track, action_name, owner_id):
     return MoveSetting
 
 
-def convert_attack_track_to_attack_data(move_track, action_name, owner_id):
+def convert_attack_track_to_attack_data(attack_track, sequence_name, owner_id):
     AttackSetting = {
         "id": owner_id,
-        "sequenceName": action_name,
+        "sequenceName": sequence_name,
         "baseInfo": None,
         "totalClipCount": 0,
         "clipCount": [],
@@ -175,7 +182,7 @@ def convert_attack_track_to_attack_data(move_track, action_name, owner_id):
     }
 
     clip_counter = 0
-    for clip in move_track["clips"]:
+    for clip in attack_track["clips"]:
         # print(clip)
 
         clip_data = {
@@ -199,13 +206,37 @@ def convert_attack_track_to_attack_data(move_track, action_name, owner_id):
     return AttackSetting
 
 
+# def convert_sequence_bundle_data():
+
+
+def adapt_action(action, owner_id):
+    attack_setting = {}
+    move_setting = {}
+    update_setting = {}
+
+    action_name = action["action_name"]
+    # print("Action Name", action_name)
+
+    for track in action["tracks"]:
+
+        track_behaviour_name = track["behaviour"]["m_Name"]
+
+        if track_behaviour_name == "Attack Track":
+            attack_setting = convert_attack_track_to_attack_data(track, action_name, owner_id)
+
+        elif track_behaviour_name == "Move Track":
+            move_setting = convert_move_track_to_move_data(track, action_name, owner_id)
+
+    return attack_setting, move_setting, update_setting
+
+
 def convert_enemy_action_data_to_sequence_data(actions, owner_id):
     AttackSetting = []
     MoveSetting = []
 
     for action in actions:
         action_name = action["action_name"]
-        print("Action Name", action_name)
+        # print("Action Name", action_name)
 
         for track in action["tracks"]:
 
@@ -224,6 +255,81 @@ def convert_enemy_action_data_to_sequence_data(actions, owner_id):
                     MoveSetting.append(move_setting)
 
     return AttackSetting, MoveSetting
+
+
+def adapt_character_sequences(extracted_setting_folder, character_player_folder):
+    sequence_master_data = []
+
+    sequence_setting_files = Path(extracted_setting_folder).rglob("*.json")
+
+    for sequence_setting_path in sequence_setting_files:
+        sequence_setting: json
+
+        with open(sequence_setting_path, "r", encoding="UTF-8") as f:
+            sequence_setting = json.load(f)
+
+        character_id = sequence_setting["owner_id"]
+        print("Character ID", character_id)
+
+        # Character's sequences
+        character_sequence_folder = character_player_folder / character_id / "sequences"
+
+        sequence_file_by_sequence_name = {}
+        sequence_file_path_list = Path(character_sequence_folder).rglob("*.ab")
+        for asset_bundle_path in sequence_file_path_list:
+            file_name = asset_bundle_path.name
+            file_action_name = file_name[:file_name.rfind("_")]
+
+            sequence_file_by_sequence_name[file_action_name] = asset_bundle_path
+
+        attacks = []
+        moves = []
+        updates = []
+
+        for sequence_name in sequence_setting["sequenceNames"]:
+            asset_bundle_path = sequence_file_by_sequence_name[sequence_name.lower()]
+            print(sequence_name, asset_bundle_path)
+
+            sequence_bundle_data = UnityPy.load(str(asset_bundle_path))
+
+            single_sequence_setting = sequence_setting
+            single_sequence_setting["sequenceNames"] = [sequence_name]
+
+            action_data = extract_track_data(sequence_bundle_data, sequence_setting)
+            # print(action_data)
+
+            for action in action_data:
+                attack_data, move_data, update_data = adapt_action(action, character_id)
+                # attack_data, move_data = convert_enemy_action_data_to_sequence_data(action_data, character_id)
+
+                if attack_data != {}:
+                    attacks.append(attack_data)
+
+                if move_data != {}:
+                    moves.append(move_data)
+
+                if update_data != {}:
+                    updates.append(update_data)
+
+        attack_setting = {
+            "CharacterId": character_id,
+            "Category": "AttackSetting",
+            "Data": json.dumps({"AttackSetting": attacks})
+        }
+
+        move_setting = {
+            "CharacterId": character_id,
+            "Category": "MoveSetting",
+            "Data": json.dumps({"MoveSetting": moves})
+        }
+
+        sequence_master_data.append(attack_setting)
+        sequence_master_data.append(move_setting)
+
+        # Character's Mystic Artes
+        character_special_skill_folder = character_player_folder / character_id / "specialskill"
+
+    return sequence_master_data
 
 
 def adapt_enemy_sequence(extracted_setting_folder, animation_folder):
@@ -252,9 +358,9 @@ def adapt_enemy_sequence(extracted_setting_folder, animation_folder):
         for owner_id, sequence_setting in enemy_group_sequence_data.items():
 
             # Action data has all sequence parameters
-            action_data = extract_ActionData(animation_data, sequence_setting)
+            action_data = extract_track_data(animation_data, sequence_setting)
 
-            print("Owner ID", owner_id)
+            # print("Owner ID", owner_id)
 
             attack_data, move_data = convert_enemy_action_data_to_sequence_data(action_data, owner_id)
 

@@ -32,22 +32,22 @@ For example:
 manifest = True
 download = True
 extract = True
+adapt_master_data = True
 extract_sequences = True
 adapt_sequences = True
-adapt_master_data = True
 adapt_scenario = True
 generate = True
 save_data = True
 
-DEBUG_CONFIG = False
+DEBUG_CONFIG = True
 
 if DEBUG_CONFIG:
     manifest = False
     download = False
     extract = False
+    adapt_master_data = False
     extract_sequences = False
     adapt_sequences = True
-    adapt_master_data = False
     adapt_scenario = False
     generate = False
     save_data = False
@@ -339,6 +339,9 @@ def setup(asset_server_link):
 
     if adapt_sequences:
         character_sequence, enemy_sequence = adapt_sequence_data_from_animation_data(SEQUENCE_SETTING_EXTRACT_FOLDER, DOWNLOAD_FOLDER / "characters")
+
+        with open(MASTER_DATA_FOLDER / "CharacterSequenceMasterData.json", "w", encoding="UTF-8") as f:
+            json.dump(character_sequence, f, indent=4)
 
         with open(MASTER_DATA_FOLDER / "EnemySequenceMasterData.json", "w", encoding="UTF-8") as f:
             json.dump(enemy_sequence, f, indent=4)
