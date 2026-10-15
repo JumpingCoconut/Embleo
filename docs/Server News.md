@@ -2,9 +2,11 @@
 
 ## Built-in notices
 
-This public server code no longer generates a setup news notice. Hosting and
-deployment controllers generate their own read-only `server-setup` notice.
-Local setup leaves `offline_responses/api/news/list.json` unchanged.
+Setup does not prompt for a welcome message or generate a server notice.
+Local setup leaves `src/offline_responses/api/news/list.json` unchanged.
+To customize news locally, edit that file separately from setup and preserve
+the existing entries and their field types. Automated hosts can manage news
+outside the setup process; no setup extension is required.
 
 ## Adding built-in pictures to news
 
@@ -18,9 +20,7 @@ sprite markup, for example:
 
 `<sprite=N>` selects a registered picture from the viewer's default sprite
 asset. `<br>` adds a line break. Put the tags directly in the JSON string;
-do not HTML-escape their angle brackets. Setup's content prompt and
-`EMBLEO_NEWS_CONTENT` escape markup, so use direct JSON edits for sprites.
-Running setup preserves other notices but replaces the `server-setup` entry.
+do not HTML-escape their angle brackets. Setup does not modify these notices.
 
 `sprite-example` in the News JSON demonstrates all 14 registered indices.
 The original announcements remain separate entries. Verify changes by opening
