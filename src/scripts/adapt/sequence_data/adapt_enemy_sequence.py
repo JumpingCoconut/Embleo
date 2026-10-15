@@ -2,7 +2,6 @@ import UnityPy
 import json
 from pathlib import Path
 
-
 action_script_path_number = 5650615754327761616
 
 
@@ -172,6 +171,7 @@ ATTACK_CLIPS_SKIP = {
     "EnemyRevive Clip"
 }
 
+
 def convert_attack_track_to_attack_data(attack_track, sequence_name, owner_id):
     AttackSetting = {
         "id": owner_id,
@@ -250,6 +250,24 @@ def convert_move_track_to_move_data(move_track, sequence_name, owner_id):
     return MoveSetting
 
 
+def adapt_update_parameter_track(track, sequence_name, owner_id):
+    UpdateParameterSetting = {
+        "id": owner_id,
+        "sequenceName": sequence_name,
+        "totalClipCount": 0,
+        "clipCount": [],
+        "clipDatas": []
+    }
+
+    # print(action["action_name"])
+
+    for clip in track["clips"]:
+        # print(clip)
+
+        if clip["behaviour"]["m_Name"] in MOVE_CLIPS:
+            UpdateParameterSetting["totalMoveCount"] += 1
+
+    return UpdateParameterSetting
 
 
 def adapt_action(action, owner_id):
@@ -342,6 +360,46 @@ def adapt_character_sequences(extracted_setting_folder, character_player_folder)
                 if update_data != {}:
                     updates.append(update_data)
 
+        # Character's Mystic Artes
+        character_special_skill_folder = character_player_folder / character_id / "specialskill"
+        special_skill_bundle_path_list = Path(character_special_skill_folder).rglob("*/specialskill@*.ab")
+
+        special_skill_base_path = "characters/player/{char_id}/specialskill/{skill_folder_name}/"
+
+        for special_skill_bundle_path in special_skill_bundle_path_list:
+            special_skill_bundle_data = UnityPy.load(str(special_skill_bundle_path))
+
+            skill_file_name = special_skill_bundle_path.name
+            skill_name = skill_file_name[:skill_file_name.rfind("_")]
+            skill_folder_name = special_skill_bundle_path.parent.name
+            print(skill_folder_name)
+
+
+            special_skill_sequence_setting = {
+                "owner_id": character_id,
+                "basePath": special_skill_base_path.format(char_id=character_id, skill_folder_name=skill_folder_name),
+                "sequenceNames": [
+                    "SpecialSkill@" + str(skill_folder_name)
+                ]
+            }
+
+            print("SpecialSkill@" + str(skill_folder_name))
+            action_data = extract_track_data(special_skill_bundle_data, special_skill_sequence_setting)
+            # print(action_data)
+
+            for action in action_data:
+                attack_data, move_data, update_data = adapt_action(action, character_id)
+                # attack_data, move_data = convert_enemy_action_data_to_sequence_data(action_data, character_id)
+
+                if attack_data != {}:
+                    attacks.append(attack_data)
+
+                if move_data != {}:
+                    moves.append(move_data)
+
+                if update_data != {}:
+                    updates.append(update_data)
+
         attack_setting = {
             "CharacterId": character_id,
             "Category": "AttackSetting",
@@ -356,9 +414,6 @@ def adapt_character_sequences(extracted_setting_folder, character_player_folder)
 
         sequence_master_data.append(attack_setting)
         sequence_master_data.append(move_setting)
-
-        # Character's Mystic Artes
-        character_special_skill_folder = character_player_folder / character_id / "specialskill"
 
     return sequence_master_data
 

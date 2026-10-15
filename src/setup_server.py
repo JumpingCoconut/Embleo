@@ -341,10 +341,12 @@ def setup(asset_server_link):
         character_sequence, enemy_sequence = adapt_sequence_data_from_animation_data(SEQUENCE_SETTING_EXTRACT_FOLDER, DOWNLOAD_FOLDER / "characters")
 
         with open(MASTER_DATA_FOLDER / "CharacterSequenceMasterData.json", "w", encoding="UTF-8") as f:
-            json.dump(character_sequence, f, indent=4)
+            if character_sequence != []:
+                json.dump(character_sequence, f, indent=4)
 
         with open(MASTER_DATA_FOLDER / "EnemySequenceMasterData.json", "w", encoding="UTF-8") as f:
-            json.dump(enemy_sequence, f, indent=4)
+            if enemy_sequence != []:
+                json.dump(enemy_sequence, f, indent=4)
 
     if adapt_scenario:
         scenario_output_folder = DATA_FOLDER / "masterdata" / "scenario"
