@@ -42,7 +42,59 @@ class UpstreamSetupMergeTests(unittest.TestCase):
     def test_setup_uses_absolute_destination(self):
         with patch.multiple(setup_server, manifest=False, download=False, extract=False,
                             adapt_master_data=False, adapt_scenario=False, generate=False):
-            setup_server.setup('')
+            with patch('builtins.open', side_effect=AssertionError('Disabled setup must not access data')):
+                setup_server.setup('')
+
+    def test_setup_keeps_sequences_from_integrated_master_data_pipeline(self):
+        from scripts.adapt.master_data.sequence import adapt_debug_sequences_master_data
+        from scripts.adapt import adapt_sequence_data as recovery
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extracted = root / 'extract'
+            downloaded = root / 'download'
+            output = root / 'masterdata'
+            extracted.mkdir()
+            output.mkdir()
+            (downloaded / 'characters/enemy').mkdir(parents=True)
+            source = extracted / 'SequenceMasterDataObject.json'
+            attack = {'id': 'em0001_001', 'sequenceName': 'Attack1',
+                      'clipDatas': [{'damage': 5}]}
+            source.write_text(json.dumps({
+                'attackList': [{'AttackSetting': [attack]}],
+                'moveList': [], 'updateParameterList': [],
+            }), encoding='utf-8')
+            recovered = [{'EnemyId': 'em0001_001', 'Category': 'MoveSetting',
+                          'Data': json.dumps({'MoveSetting': [
+                              {'sequenceName': 'Walk010', 'speed': [0.8]}]})}]
+
+            def adapt_masters(extract_folder, output_folder):
+                self.assertEqual(extract_folder, extracted)
+                adapt_debug_sequences_master_data(source, output_folder, downloaded)
+
+            with patch.multiple(setup_server, manifest=False, download=False, extract=False,
+                                adapt_master_data=True, adapt_scenario=False, generate=False,
+                                EXTRACT_FOLDER=extracted, DOWNLOAD_FOLDER=downloaded,
+                                MASTER_DATA_FOLDER=output), \
+                    patch.object(setup_server, 'adapt_debug_master_data', side_effect=adapt_masters), \
+                    patch.object(setup_server, 'generate_character_chronology_json'), \
+                    patch.object(setup_server, 'extract_all_SequenceSetting_files', create=True,
+                                 side_effect=AssertionError('Sequence recovery belongs inside master adaptation')), \
+                    patch.object(setup_server, 'adapt_sequence_data_from_animation_data', create=True,
+                                 side_effect=AssertionError('Do not overwrite combined combat masters')), \
+                    patch('scripts.adapt.master_data.sequence.recover_special_skills', return_value=[]), \
+                    patch('scripts.adapt.master_data.sequence.recover_minion_commands', return_value=[]), \
+                    patch.object(recovery, 'extract_all_SequenceSetting_files') as extract_settings, \
+                    patch.object(recovery, 'adapt_sequence_data_from_animation_data',
+                                 return_value=([], recovered)) as adapt_sequences:
+                setup_server.setup('')
+
+            extract_settings.assert_called_once()
+            adapt_sequences.assert_called_once()
+            rows = json.loads((output / 'EnemySequenceMasterData.json').read_text())
+            self.assertEqual({row['Category'] for row in rows}, {'AttackSetting', 'MoveSetting'})
+            attacks = next(row for row in rows if row['Category'] == 'AttackSetting')
+            self.assertEqual(json.loads(attacks['Data'])['AttackSetting'], [attack])
 
 
 if __name__ == '__main__':
