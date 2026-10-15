@@ -34,6 +34,16 @@ adapt_master_data = True
 adapt_scenario = True
 generate = True
 
+DEBUG_CONFIG = False
+
+if DEBUG_CONFIG:
+    manifest = False
+    download = False
+    extract = False
+    adapt_master_data = False
+    adapt_scenario = False
+    generate = False
+
 # Download and extract manifest from the asset server
 path_cwd = Path(__file__).resolve().parent
 
@@ -99,6 +109,7 @@ def download_file(url, output_folder=DOWNLOAD_FOLDER, force_redownload=False):
 
     with open(output_file_path, "wb") as of:
         of.write(file_data)
+        print("Downloaded", output_file_path)
 
 
 def extract_file(file_path, output_folder=EXTRACT_FOLDER):

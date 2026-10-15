@@ -55,6 +55,8 @@ INSTANT_MYSTIC_ARTES = False
 SKIP_VIDEOS = False
 SKIP_ROUTE_FORK_MERGE = False
 
+ADD_BASTIEN_EPISODE = True  # Don't touch it if the cover is missing
+
 FAKE_CHECKPOINT_PATH = "./checkpoint.txt"
 
 '''
@@ -1490,7 +1492,9 @@ def top_add_episodes():
 
 			# print(episode_id)
 
-			if episode_id in unreleased_episodes:
+			if episode_id == "pl011_ep002" and ADD_BASTIEN_EPISODE:
+				pass
+			elif episode_id in unreleased_episodes:
 				continue
 
 			episode_order = {
