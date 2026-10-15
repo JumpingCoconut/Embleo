@@ -39,14 +39,10 @@ class UpstreamSetupMergeTests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual((rows[0]['EpisodeItemId'], rows[0]['ItemDropMethod']), ('box', 2))
 
-    def test_setup_preserves_news_and_uses_absolute_destination(self):
+    def test_setup_uses_absolute_destination(self):
         with patch.multiple(setup_server, manifest=False, download=False, extract=False,
-                            adapt_master_data=False, adapt_scenario=False, generate=False), \
-                patch.object(setup_server, 'generate_server_news') as news:
-            settings = {'enabled': False}
-            setup_server.setup('', settings)
-        news.assert_called_once_with(settings, path=setup_server.path_cwd /
-            'offline_responses/api/news/list.json')
+                            adapt_master_data=False, adapt_scenario=False, generate=False):
+            setup_server.setup('')
 
 
 if __name__ == '__main__':

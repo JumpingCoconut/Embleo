@@ -12,7 +12,7 @@ from scripts.adapt.adapt_chronology_for_server import generate_character_chronol
 
 from scripts.generate.generate_episode_master_data import generate_episode_master_data
 from scripts.generate.generate_temp_level_curve import generate_character_curve_list, generate_equipment_curve_list
-from scripts.generate.generate_server_news import ask_news_settings, generate_server_news
+
 
 '''
 TODO
@@ -256,7 +256,7 @@ def get_asset_server_link():
     return asset_server_link
 
 
-def setup(asset_server_link, news_settings=None):
+def setup(asset_server_link):
 
     if manifest:
         print("Downloading and extracting manifest file")
@@ -320,7 +320,7 @@ def setup(asset_server_link, news_settings=None):
     if generate:
         generate_master_data()
 
-    generate_server_news(news_settings, path=Path(__file__).resolve().parent / "offline_responses" / "api" / "news" / "list.json")
+
 
 
 if __name__ == "__main__":
@@ -330,8 +330,7 @@ if __name__ == "__main__":
 
     print("Asset Server URL:", asset_server_link)
 
-    news_settings = ask_news_settings()
-    setup(asset_server_link, news_settings)
+    setup(asset_server_link)
 
     print("")
     print("Finished setting up the server")

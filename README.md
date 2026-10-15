@@ -10,7 +10,6 @@ Download this server (`Code > Download ZIP`) and extract the archive.
 3. Extract the archive and copy `uv` into the `Embleo` folder (where README.md file is)
 4. Double-click `run_setup.py` (`uv` will download necessary Python dependencies)
 5. Type in (copy-paste) **Asset Server URL** into the newly open window and press Enter.
-6. Optionally add a welcome notice shown in the game. Press Enter to use the suggested title and message, or type `n` to skip. Existing news stays unchanged.
 
 The script will then download necessary files from the specified **Asset Server**. Wait for it to finish.
 
