@@ -111,6 +111,111 @@ def extract_track_data(animation_data, sequence_setting):
     return actions
 
 
+ATTACK_CLIPS = {
+    # Player attacks
+    'Attack Clip': ('clip_Attack', 'attackClipSettings'),
+    'GunAttack Clip': ('clip_Gun', 'gunAttackClipSettings'),
+    'DeathBall Clip': ('clip_DeathBall', 'gunAttackClipSettings'),
+    'Summon Clip': ('clip_Summon', 'clipSettings'),
+    'LaserAttack Clip': ('clip_Laser', 'clipSettings'),
+    'ThrowWeapon Clip': ('clip_ThrowWeapon', 'gunAttackClipSettings'),
+    'HomingGun Clip': ('clip_HomingGun', 'gunAttackClipSettings'),
+    'Charging Clip': ('clip_Charging', 'ChargingClipSettings'),
+    'GrenadeAttack Clip': ('clip_Grenade', 'gunAttackClipSettings'),
+    'PutShooting Clip': ('clip_PutShoot', 'gunAttackClipSettings'),
+    'LookTargetGunAttack Clip': ('clip_LookGun', 'gunAttackClipSettings'),
+    'Grenade PlungingFireAttack Clip': ('clip_Plunging', 'gunAttackClipSettings'),
+
+    'MinionOrder Clip': ('clip_MinionOrder', 'minionOrderSettings'),
+    'MinionAttack Clip': ('clip_MinionAttack', 'minionAttackClipSettings'),
+    'RegisterBuff Clip': ('clip_RegisterBuff', 'clipSettings'),
+    'AreaGuard Clip': ('clip_AreaGuard', 'clipSettings'),
+
+    # Enemy Attacks
+    'EnemyAttack Clip': ('enemy_Hit', '_hitParameter'),
+    'EnemyColliderAttack Clip': ('enemy_ColliderHit', '_hitParameter'),
+    'EnemyThrowGrabAttack Clip': ('enemy_Throw', '_grabParameter'),
+    # LinkThrow?
+    'EnemyLaserAttack Clip': ('enemy_Laser', '_laserParameter'),
+    'EnemyCatchAttack Clip': ('enemy_CatchAttack', 'm_catchParam'),
+
+    # Are EnemyHeal and EnemyRevive Clip suppose to be handled here?
+    # em0111_01 and em0111_02 (Phoenix raid boss)
+}
+
+ATTACK_CLIPS_SKIP = {
+    "RepairGauge Clip",
+    "RevertWeapon Clip",  # Has no values at all
+    "SkillActiveCharge Clip",  # August's Charge5, unrelated
+    "ChargingRate By RemainGauge Clip",  # Lucien Charge5, unrelated
+    "ResetCharge Clip",  # Celia Charge1, no values
+
+    # Maxime, not meant to be parsed by this script
+    "ResetTimeDecrease Clip",
+    "TimeDecrease Clip",
+    "Clear TimeDecrease EmptyTarget Clip",
+    "BattleActionUI Clip",
+    "BattleActionUI CheckTimeDecrease Clip",
+    "PlayStateByTimeDecreaseParam Clip",
+
+    # Lydie, not meant to be parsed by this script
+    "InputChargeGauge Clip",
+    "Setup InputChargeGauge Clip",
+    "Reset InputChargeGauge Clip",
+    "PlayStateByChargeParam Clip",
+
+    # Charles
+    "CreateMinionBit Clip",
+    "MinionUnleash Clip",
+
+    "EnemyHeal Clip",
+    "EnemyRevive Clip"
+}
+
+def convert_attack_track_to_attack_data(attack_track, sequence_name, owner_id):
+    AttackSetting = {
+        "id": owner_id,
+        "sequenceName": sequence_name,
+        "baseInfo": None,
+        "totalClipCount": 0,
+        "clipCount": [],
+        "clipDatas": []
+    }
+
+    clip_counter = 0
+    for clip in attack_track["clips"]:
+        clip_MonoBehaviour = clip["behaviour"]
+        clip_m_Name = clip_MonoBehaviour["m_Name"]
+        # print(clip)
+
+        # print()
+        if clip_m_Name in ATTACK_CLIPS:
+            destination_key, source_key = ATTACK_CLIPS[clip_m_Name]
+
+            attack_clip_setting = {
+                "hitSetting": clip_MonoBehaviour.get("hitSettings", None),
+                destination_key: clip_MonoBehaviour[source_key]
+            }
+
+            if clip_m_Name == "MinionAttack Clip":
+                attack_clip_setting["clip_Attack"] = clip_MonoBehaviour["attackClipSettings"]
+
+            if clip_m_Name == "EnemyThrowGrabAttack Clip":
+                print(clip_MonoBehaviour.keys())
+
+                if "_throwAttackParameter" in clip_MonoBehaviour:
+                    attack_clip_setting["enemy_Throw"] = clip_MonoBehaviour["_throwAttackParameter"]
+
+            AttackSetting["totalClipCount"] += 1
+            AttackSetting["clipDatas"].append(attack_clip_setting)
+
+            clip_counter += 1
+        elif clip_m_Name not in ATTACK_CLIPS_SKIP:
+            print(owner_id, sequence_name, "-", clip_m_Name, "-", "Unknown attack clip")
+
+    return AttackSetting
+
+
 MOVE_CLIPS = [
     "Move Clip",
     "DodgingMove Clip",
@@ -145,68 +250,6 @@ def convert_move_track_to_move_data(move_track, sequence_name, owner_id):
     return MoveSetting
 
 
-def convert_attack_track_to_attack_data(attack_track, sequence_name, owner_id):
-    AttackSetting = {
-        "id": owner_id,
-        "sequenceName": sequence_name,
-        "baseInfo": None,
-        "totalClipCount": 0,
-        "clipCount": [],
-        "clipDatas": []
-    }
-
-    AttackSetting["baseInfo"] = {
-        "ChargeType": 0,
-        "IsInvincible": 0,
-        "IsSuperArmor": 0,
-        "IsArmor": 0,
-        "IsStrongAttack": 0,
-        "IsFloating": 0,
-        "IsForceDamageAction": 0,
-        "SearchDistance": 0.0,
-        "ValidSearchLayerDistance": -1.0,
-        "OffsetFront": 0.0,
-        "OffsetSide": 0.0,
-        "OffsetRear": 0.0,
-        "PriorityType": 0,
-        "PriorityFlag": 0,
-        "ServiceFlags": 0,
-        "NoSetTarget": 0,
-        "DamageCutRate": 0.0,
-        "MultiTargetKey": "",
-        "IsForceMultiTarget": 0,
-        "KeepExistTarget": 0,
-        "BuffKey": "",
-        "ActionUniqueKey": "",
-        "IsWeakInvincible": 0
-    }
-
-    clip_counter = 0
-    for clip in attack_track["clips"]:
-        # print(clip)
-
-        clip_data = {
-        }
-
-        # print()
-        if clip["behaviour"]["m_Name"] in ["Attack Clip", "EnemyAttack Clip"]:
-            AttackSetting["totalClipCount"] += 1
-
-            if "_hitParameter" in clip["behaviour"]:
-                clip_data["enemy_Hit"] = clip["behaviour"]["_hitParameter"]
-
-            if "attackClipSettings" in clip["behaviour"]:
-                clip_data["hitSetting"] = clip["behaviour"]["hitSettings"]
-
-            if clip_data == {}:
-                print("Unknown enemy attack clip")
-
-            clip_counter += 1
-
-    return AttackSetting
-
-
-# def convert_sequence_bundle_data():
 
 
 def adapt_action(action, owner_id):
@@ -217,44 +260,32 @@ def adapt_action(action, owner_id):
     action_name = action["action_name"]
     # print("Action Name", action_name)
 
+    base_attack_info = {}
+
     for track in action["tracks"]:
 
         track_behaviour_name = track["behaviour"]["m_Name"]
 
-        if track_behaviour_name == "Attack Track":
+        if track_behaviour_name == "Animator Track":
+            clip_count = len(track["clips"])
+            if clip_count > 1:
+                pass
+                # print(owner_id, action_name, "has Animator Track with {} clips".format(clip_count))
+
+            for clip in track["clips"]:
+                if clip.get("isAttack"):
+                    base_attack_info = clip["attackBaseInfo"]
+
+        elif track_behaviour_name == "Attack Track":
             attack_setting = convert_attack_track_to_attack_data(track, action_name, owner_id)
 
         elif track_behaviour_name == "Move Track":
             move_setting = convert_move_track_to_move_data(track, action_name, owner_id)
 
+    if base_attack_info != {}:
+        attack_setting["baseInfo"] = base_attack_info
+
     return attack_setting, move_setting, update_setting
-
-
-def convert_enemy_action_data_to_sequence_data(actions, owner_id):
-    AttackSetting = []
-    MoveSetting = []
-
-    for action in actions:
-        action_name = action["action_name"]
-        # print("Action Name", action_name)
-
-        for track in action["tracks"]:
-
-            track_behaviour_name = track["behaviour"]["m_Name"]
-
-            if track_behaviour_name == "Attack Track":
-                attack_setting = convert_attack_track_to_attack_data(track, action_name, owner_id)
-
-                if attack_setting["totalClipCount"] > 0:
-                    AttackSetting.append(attack_setting)
-
-            elif track_behaviour_name == "Move Track":
-                move_setting = convert_move_track_to_move_data(track, action_name, owner_id)
-
-                if move_setting["totalMoveCount"] > 0:
-                    MoveSetting.append(move_setting)
-
-    return AttackSetting, MoveSetting
 
 
 def adapt_character_sequences(extracted_setting_folder, character_player_folder):
@@ -269,7 +300,7 @@ def adapt_character_sequences(extracted_setting_folder, character_player_folder)
             sequence_setting = json.load(f)
 
         character_id = sequence_setting["owner_id"]
-        print("Character ID", character_id)
+        # print("Character ID", character_id)
 
         # Character's sequences
         character_sequence_folder = character_player_folder / character_id / "sequences"
@@ -288,7 +319,7 @@ def adapt_character_sequences(extracted_setting_folder, character_player_folder)
 
         for sequence_name in sequence_setting["sequenceNames"]:
             asset_bundle_path = sequence_file_by_sequence_name[sequence_name.lower()]
-            print(sequence_name, asset_bundle_path)
+            # print(sequence_name, asset_bundle_path)
 
             sequence_bundle_data = UnityPy.load(str(asset_bundle_path))
 
@@ -362,18 +393,33 @@ def adapt_enemy_sequence(extracted_setting_folder, animation_folder):
 
             # print("Owner ID", owner_id)
 
-            attack_data, move_data = convert_enemy_action_data_to_sequence_data(action_data, owner_id)
+            attacks = []
+            moves = []
+            updates = []
+
+            for action in action_data:
+                attack_data, move_data, update_data = adapt_action(action, owner_id)
+                # attack_data, move_data = convert_enemy_action_data_to_sequence_data(action_data, character_id)
+
+                if attack_data != {}:
+                    attacks.append(attack_data)
+
+                if move_data != {}:
+                    moves.append(move_data)
+
+                if update_data != {}:
+                    updates.append(update_data)
 
             attack_setting = {
                 "EnemyId": owner_id,
                 "Category": "AttackSetting",
-                "Data": json.dumps({"AttackSetting": attack_data})
+                "Data": json.dumps({"AttackSetting": attacks})
             }
 
             move_setting = {
                 "EnemyId": owner_id,
                 "Category": "MoveSetting",
-                "Data": json.dumps({"MoveSetting": move_data})
+                "Data": json.dumps({"MoveSetting": moves})
             }
 
             sequence_master_data.append(attack_setting)
