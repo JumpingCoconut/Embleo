@@ -46,7 +46,7 @@ if DEBUG_CONFIG:
     download = False
     extract = False
     extract_sequences = False
-    adapt_sequences = False
+    adapt_sequences = True
     adapt_master_data = False
     adapt_scenario = False
     generate = False
@@ -327,6 +327,13 @@ def setup(asset_server_link):
         for path in downloaded_files:
             extract_file(str(path))
 
+    if adapt_master_data:
+        adapt_debug_master_data(EXTRACT_FOLDER, MASTER_DATA_FOLDER)
+
+        generate_character_chronology_json(EXTRACT_FOLDER / "lang_ja/texts/commonterm/Chronology.json",
+                                           CHRONOLOGY_FOLDER)
+
+    # Sequences are handled separately
     if extract_sequences:
         extract_all_SequenceSetting_files(DOWNLOAD_FOLDER / "characters", SEQUENCE_SETTING_EXTRACT_FOLDER)
 
@@ -335,12 +342,6 @@ def setup(asset_server_link):
 
         with open(MASTER_DATA_FOLDER / "EnemySequenceMasterData.json", "w", encoding="UTF-8") as f:
             json.dump(enemy_sequence, f, indent=4)
-
-    if adapt_master_data:
-        adapt_debug_master_data(EXTRACT_FOLDER, MASTER_DATA_FOLDER)
-
-        generate_character_chronology_json(EXTRACT_FOLDER / "lang_ja/texts/commonterm/Chronology.json",
-                                           CHRONOLOGY_FOLDER)
 
     if adapt_scenario:
         scenario_output_folder = DATA_FOLDER / "masterdata" / "scenario"
