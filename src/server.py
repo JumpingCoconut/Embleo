@@ -42,7 +42,7 @@ SKIP_BATTLES = False
 SKIP_VIDEOS = False
 SKIP_ROUTE_FORK_MERGE = False
 
-ADD_BASTIEN_EPISODE = True
+ADD_BASTIEN_EPISODE = True  # Don't touch it if the cover is missing
 
 FAKE_CHECKPOINT_PATH = "./checkpoint.txt"
 
@@ -899,7 +899,7 @@ def level_up_camp_start():
 			"TimerCountType": 1,
 			"Finishes": [
 				{
-					"Type": 2,
+					"Type": 1,
 					"Flag": 1,
 					"Option": ""
 				},{
