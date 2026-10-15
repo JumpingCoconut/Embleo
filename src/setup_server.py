@@ -10,6 +10,9 @@ from scripts.adapt.master_data.special_skill import sequence_bundle_names, minio
 from scripts.adapt.adapt_debug_scenario import adapt_debug_scenario_file, batch_adapt_scenario_folder
 from scripts.adapt.adapt_chronology_for_server import generate_character_chronology_json
 
+from scripts.adapt.adapt_sequence_data import extract_all_SequenceSetting_files
+from scripts.adapt.adapt_sequence_data import adapt_sequence_data_from_animation_data
+
 from scripts.generate.generate_episode_master_data import generate_episode_master_data
 from scripts.generate.generate_temp_level_curve import generate_character_curve_list, generate_equipment_curve_list
 
@@ -30,6 +33,8 @@ For example:
 manifest = True
 download = True
 extract = True
+extract_sequences = True
+adapt_sequences = True
 adapt_master_data = True
 adapt_scenario = True
 generate = True
@@ -40,6 +45,8 @@ if DEBUG_CONFIG:
     manifest = False
     download = False
     extract = False
+    extract_sequences = False
+    adapt_sequences = True
     adapt_master_data = False
     adapt_scenario = False
     generate = False
@@ -56,6 +63,7 @@ EXTRACT_FOLDER = DATA_FOLDER / "extract"
 
 CHRONOLOGY_FOLDER = DATA_FOLDER / "chronology"
 MASTER_DATA_FOLDER = DATA_FOLDER / "masterdata"
+SEQUENCE_SETTING_EXTRACT_FOLDER = EXTRACT_FOLDER / "SequenceSetting"
 SAVE_DATA_FOLDER = DATA_FOLDER / "user"
 
 manifest_version = "fd2ab21941c4f074bb19997e67f62eb1"
@@ -312,6 +320,16 @@ def setup(asset_server_link):
 
         generate_character_chronology_json(EXTRACT_FOLDER / "lang_ja/texts/commonterm/Chronology.json",
                                            CHRONOLOGY_FOLDER)
+
+    # Sequences are handled separately
+    if extract_sequences:
+        extract_all_SequenceSetting_files(DOWNLOAD_FOLDER / "characters", SEQUENCE_SETTING_EXTRACT_FOLDER)
+
+    if adapt_sequences:
+        character_sequence, enemy_sequence = adapt_sequence_data_from_animation_data(SEQUENCE_SETTING_EXTRACT_FOLDER, DOWNLOAD_FOLDER / "characters")
+
+        with open(MASTER_DATA_FOLDER / "EnemySequenceMasterData.json", "w", encoding="UTF-8") as f:
+            json.dump(enemy_sequence, f, indent=4)
 
     if adapt_scenario:
         scenario_output_folder = DATA_FOLDER / "masterdata" / "scenario"
