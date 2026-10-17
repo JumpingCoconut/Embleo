@@ -14,7 +14,20 @@ class EnemySequenceTests(unittest.TestCase):
                  for s in (0.8, 1.2)]
         row = convert_move_track_to_move_data({'clips': clips}, 'Walk010', 'em0001_001')
         self.assertEqual(row['totalMoveCount'], 2)
+        self.assertEqual(row['moveCount'], [0, 1])
         self.assertEqual(row['speed'], [0.8, 1.2])
+
+    def test_native_lookup_can_index_every_generated_movement_clip(self):
+        clips = [{'behaviour': dict(m_Name='EnemyMove Clip', clipIndex=i,
+                  direction=dict(x=0, y=0, z=1), speed=1.5)} for i in (0, 2)]
+        row = convert_move_track_to_move_data({'clips': clips}, 'Action040', 'em0017_001')
+        # DataSet.Get_MoveData checks direction/speed lengths and totalMoveCount,
+        # then indexes moveCount[index] and requires it to equal index.
+        for index in range(row['totalMoveCount']):
+            self.assertEqual(row['moveCount'][index], index)
+            self.assertIn('z', row['direction'][index])
+            self.assertIsInstance(row['speed'][index], (int, float))
+        self.assertEqual(row['speed'][1], 0)
 
     def test_merging_movement_preserves_attacks_and_other_sequences(self):
         attack = dict(EnemyId='em0001_001', Category='AttackSetting', Data='native attack payload')

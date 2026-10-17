@@ -139,6 +139,8 @@ def convert_move_track_to_move_data(move_track, action_name, owner_id):
 
     count = max(clips, default=-1) + 1
     MoveSetting["totalMoveCount"] = count
+    # Native Get_MoveData indexes this array after checking the other arrays.
+    MoveSetting["moveCount"] = list(range(count))
     MoveSetting["direction"] = [clips.get(i, {}).get('direction', dict(x=0,y=0,z=0)) for i in range(count)]
     MoveSetting["speed"] = [clips.get(i, {}).get('speed', 0) for i in range(count)]
 

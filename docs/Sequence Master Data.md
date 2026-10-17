@@ -259,6 +259,9 @@ Setup downloads all `characters/enemy/` bundles, extracts
 each prefab's SequenceSetting and follows its animation bundle's action tracks.
 EnemyMove clips use timeline traversal indices because they have no serialized
 clipIndex. The installed manifest selects exact bundle versions.
+Each generated movement record supplies `moveCount` indices alongside `direction`
+and `speed`: the native lookup indexes `moveCount[index]` and requires it to equal
+`index`. A positive count with an empty index array can throw during playback.
 
 Recovered MoveSetting rows merge into existing enemy masters during sequence
 adaptation, including CLI regeneration. Existing attack rows and player/costume masters are preserved;
