@@ -234,6 +234,12 @@ These values are a snapshot, not validation rules. Do not truncate or synthesize
 
 `src/scripts/adapt/master_data/sequence.py` writes `CharacterSequenceMasterData.json` and `EnemySequenceMasterData.json`. It emits one row per owner/category with `CharacterId` or `EnemyId`, `Category`, and `Data` (a wrapper encoded as a JSON string). IDs containing `pl` are classified as characters; other IDs as enemies. Generated files under `src/data/` are ignored; make durable transformations in tracked adapter/server code and validate the decoded `Data` string afterward.
 
+### Regular healing circles
+
+Setup downloads Michelle's (`pl009`) `Attack2` and `Attack8` sequence bundles and recovers their healing summon settings from the timelines. These assets address summon clip index `1`; generated attack records preserve that index with an empty slot `0`. The client indexes `clipDatas` directly, so a one-slot debug record at index `0` cannot supply these settings.
+
+Recovery replaces only the matching attack records and merges their resource references. Other attacks, update settings, enemy movement, and costume-specific Mystic Artes remain on their existing pipelines. Existing installations must rerun setup to download the two required bundles before regenerating sequence masters. No APK change is required. Regression and installed-asset tests validate the lookup layout; visible circles and healing damaged allies still require a gameplay test.
+
 ### Collision layer masks
 
 The adapter converts `IgnoreHitLayer` objects from Unity's serialized `m_Bits` field to the client's `m_Mask` field, including nested projectile and summon settings. Masks use signed 32-bit values; existing runtime fields and unrelated settings are preserved. The client's JSON reader ignores `m_Bits`, leaving a zero mask that can make ground contact delete a summon before its damage window begins.

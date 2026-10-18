@@ -84,6 +84,7 @@ class UpstreamSetupMergeTests(unittest.TestCase):
                                  side_effect=AssertionError('Do not overwrite combined combat masters')), \
                     patch('scripts.adapt.master_data.sequence.recover_special_skills', return_value=[]), \
                     patch('scripts.adapt.master_data.sequence.recover_minion_commands', return_value=[]), \
+                    patch('scripts.adapt.master_data.sequence.recover_healing_circles', return_value=[]), \
                     patch.object(recovery, 'extract_all_SequenceSetting_files') as extract_settings, \
                     patch.object(recovery, 'adapt_sequence_data_from_animation_data',
                                  return_value=([], recovered)) as adapt_sequences:

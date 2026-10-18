@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from .special_skill import recover_special_skills, recover_minion_commands
+from .healing_circle import recover_healing_circles, replace_recovered_attacks
 
 
 def _normalize_layer_masks(value):
@@ -72,8 +73,11 @@ def adapt_debug_sequences_master_data(input_file_path, output_folder, bundle_roo
     # as lookup keys so swapping costumes selects the matching combat payload.
     if bundle_root is None:
         bundle_root = input_file_path.resolve().parents[2] / 'download'
+    healing_circles = recover_healing_circles(bundle_root)
+    attack_list = replace_recovered_attacks(attack_list, healing_circles)
     adapted_sequences = adapt_debug_sequence_list([
         *attack_list, *move_list, *parameter_list,
+        *(row for row in healing_circles if 'ResourceList' in row),
         *recover_special_skills(bundle_root), *recover_minion_commands(bundle_root)])
 
     character_sequences = []
