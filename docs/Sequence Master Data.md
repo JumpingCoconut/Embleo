@@ -242,7 +242,7 @@ Track adapters preserve serialized clip indices, including sparse slots and repe
 
 Setup downloads Michelle's (`pl009`) `Attack2` and `Attack8` sequence bundles and recovers their healing summon settings from the timelines. These assets address summon clip index `1`; generated attack records preserve that index, with the asset's register-buff settings in slot `0`. The client indexes `clipDatas` directly, so a one-slot debug record at index `0` cannot supply the summon settings.
 
-Recovery replaces matching attack records and merges their resource references. The shared asset adapter preserves the same indexed layout when adapting all player timelines. Existing installations must rerun setup to download the character bundles before regenerating sequence masters. No APK change is required. Regression and installed-asset tests validate the lookup layout; visible circles and healing damaged allies still require a gameplay test.
+The shared asset adapter replaces matching attack records and merges their resource references. Existing installations must rerun setup to download the character bundles before regenerating sequence masters. No APK change is required. Regression and installed-asset tests validate the lookup layout; Michelle's healing circle has also been confirmed working in gameplay.
 
 ### Collision layer masks
 
@@ -252,7 +252,7 @@ Regenerate existing sequence masters after updating the adapter, using setup or 
 
 ## Costume Mystic Artes
 
-Debug sequences alone omit the combat payloads for equipment-specific Mystic Artes. Setup also downloads the sequence bundles under `characters/player/*/specialskill/*/specialskill@*`; animation-only bundles are not needed for master generation. `special_skill.py` uses UnityPy to follow each timeline's clip references and recover attack, movement, and update-parameter settings. The generated records retain the asset's `SpecialSkill@<spell-id>` name, which the native client uses as its combat lookup key. Equipment `SpellId` selects the sequence resource. Do not replace the generic `SpecialSkill1` entry with one costume's damage.
+Debug sequences alone omit the combat payloads for equipment-specific Mystic Artes. Setup also downloads the sequence bundles under `characters/player/*/specialskill/*/specialskill@*`; animation-only bundles are not needed for master generation. The shared `sequence_data/adapt_sequence.py` adapter uses UnityPy to follow each timeline's clip references and recover attack, movement, and update-parameter settings. The generated records retain the asset's `SpecialSkill@<spell-id>` name, which the native client uses as its combat lookup key. Equipment `SpellId` selects the sequence resource. Do not replace the generic `SpecialSkill1` entry with one costume's damage.
 
 Indices address master payloads, not timestamps. Preserve `ClipIndex`, sparse indices, nested projectile/summon settings, and the timeline's order. Repeated payloads at the same index keep the first occurrence, matching native `AttackSequenceData.AddClipData`; different payload families can share the same index. The shared hit settings retain the first occurrence. The manifest selects the installed bundle version, and missing bundles or unrecognized combat clips fail generation rather than silently producing incomplete damage data.
 

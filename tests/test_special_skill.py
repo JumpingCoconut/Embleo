@@ -9,10 +9,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
 from combat_debug import apply_instant_mystic_artes, INSTANT_MYSTIC_ENV, GAUGE_BUFF_ID
-from scripts.adapt.master_data.special_skill import (
-    recover_sequence, sequence_bundle_names, recover_special_skills,
-    recover_minion_commands, minion_command_bundle_names,
-)
+from sequence_fixtures import adapt_clips as recover_sequence, adapt_bundle
+from scripts.adapt.extract_sequence_data import installed_bundle_paths
 from scripts.adapt.master_data.sequence import adapt_debug_sequence_list
 from pve_stats import startup_buff_ids
 
@@ -42,13 +40,13 @@ class SpecialSkillTests(unittest.TestCase):
         manifest_path = root / 'extract/manifest.json'
         if not manifest_path.exists():
             self.skipTest('Local game assets are not installed')
-        entries = minion_command_bundle_names(json.loads(manifest_path.read_text(encoding='utf-8')))
-        if len(entries) != 2 or not all(
-            (root / 'download' / (e['Name'] + '_' + e['Version'] + '.ab')).exists()
-            for e in entries
-        ):
+        try:
+            paths = [path for path in installed_bundle_paths(root/'download/characters', 'player/pl021/sequences/*.ab')
+                     if path.name.split('_')[0] in ('attack4', 'charge4')]
+        except FileNotFoundError:
             self.skipTest('Minion command bundles are not installed')
-        rows = recover_minion_commands(root / 'download')
+        self.assertEqual(len(paths), 2)
+        rows = [row for path in paths for row in adapt_bundle(path, 'pl021')]
         attacks = {s['sequenceName']: s for r in rows for s in r.get('AttackSetting', [])}
         charge = attacks['Charge4']['clipDatas'][0]['clip_MinionOrder']
         self.assertEqual(charge['playSequenceName'], 'MinionUniqueAttack1')
@@ -62,11 +60,13 @@ class SpecialSkillTests(unittest.TestCase):
         if not (root / 'extract/manifest.json').exists():
             self.skipTest('Local game assets are not installed')
         manifest = json.loads((root / 'extract/manifest.json').read_text(encoding='utf-8'))
-        expected = sequence_bundle_names(manifest)
+        expected = [entry for entry in manifest['m_Entries']
+                    if '/specialskill/' in entry['Name'] and '/specialskill@' in entry['Name']]
         if not all((root / 'download' / (e['Name'] + '_' + e['Version'] + '.ab')).exists()
                    for e in expected):
             self.skipTest('Special skill bundles are not installed')
-        rows = recover_special_skills(root / 'download')
+        rows = [row for entry in expected for row in adapt_bundle(
+            root/'download'/(entry['Name']+'_'+entry['Version']+'.ab'), entry['Name'].split('/')[2])]
         attacks = [w['AttackSetting'][0] for w in rows if 'AttackSetting' in w]
         self.assertEqual({s['sequenceName'].lower() for s in attacks},
                          {e['Name'].split('/')[-1] for e in expected})
@@ -174,12 +174,6 @@ class SpecialSkillTests(unittest.TestCase):
             {'AttackSetting': [{'id': 'pl001', 'sequenceName': 'SpecialSkill@b'}]}])
         self.assertEqual(len(rows), 1)
         self.assertEqual(len(json.loads(rows[0]['Data'])['AttackSetting']), 2)
-
-    def test_manifest_excludes_animation_and_other_sequences(self):
-        paths = ['characters/player/pl001/specialskill/a/specialskill@a',
-                 'characters/player/pl001/specialskill/a/@a', 'characters/player/pl001/attack']
-        rows = [{'Name': name} for name in paths]
-        self.assertEqual(sequence_bundle_names({'m_Entries': rows}), rows[:1])
 
     def test_quick_charge_is_opt_in_preserves_existing_startup_buffs(self):
         group = {'characters': [{'UniqueParamData': json.dumps({'m_Param_StringArray': [

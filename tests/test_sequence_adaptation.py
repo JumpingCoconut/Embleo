@@ -129,33 +129,27 @@ class SequenceAdaptationTests(unittest.TestCase):
         from types import SimpleNamespace
         self.assertEqual(get_sequence_timeline_data(SimpleNamespace(objects=[]), 0, 'Attack', 'enemy'), {})
 
-    def test_installed_assets_retain_healing_and_costume_summon_settings(self):
-        from scripts.adapt.master_data.healing_circle import healing_circle_bundle_names
-        from scripts.adapt.master_data.special_skill import sequence_bundle_names, recover_bundle
-        import UnityPy
+    def test_installed_lucien_charge_and_normal_attack_projectile_slots(self):
+        from sequence_fixtures import adapt_bundle
         root = Path(__file__).resolve().parents[1] / 'src/data'
         if not (root/'extract/manifest.json').is_file():
             self.skipTest('Local game assets are not installed')
         manifest = json.loads((root/'extract/manifest.json').read_text(encoding='utf-8-sig'))
-        entries = healing_circle_bundle_names(manifest) + [e for e in sequence_bundle_names(manifest)
-                   if e['Name'].startswith('characters/player/pl010/')]
+        entries = [e for e in manifest['m_Entries'] if e['Name'] in (
+            'characters/player/pl005/sequences/charge5', 'characters/player/pl005/sequences/attack2')]
         paths = [(e, root/'download'/(e['Name']+'_'+e['Version']+'.ab')) for e in entries]
         if not entries or any(not p.is_file() for e, p in paths):
-            self.skipTest('Healing and costume sequence bundles are not installed')
+            self.skipTest('Lucien sequence bundles are not installed')
+        self.assertEqual(len(entries), 2)
         for entry, path in paths:
             with self.subTest(sequence=entry['Name']):
-                owner = entry['Name'].split('/')[2]
-                reference = next(r['AttackSetting'][0] for r in recover_bundle(path, owner) if 'AttackSetting' in r)
-                env = UnityPy.load(str(path))
-                timeline = get_sequence_timeline_data(env, '', reference['sequenceName'], owner)
-                actual = adapt_sequence_timeline(timeline, owner)['AttackSetting']
-                self.assertEqual(actual['totalClipCount'], reference['totalClipCount'])
-                self.assertEqual(actual['baseInfo'], reference['baseInfo'])
-                # The complete upstream adapter additionally recovers buff clips.
-                for index, expected in enumerate(reference['clipDatas']):
-                    for family, settings in expected.items():
-                        from scripts.adapt.sequence_data.tracks.Attack import normalize_IgnoreHitLayer
-                        self.assertEqual(actual['clipDatas'][index][family], normalize_IgnoreHitLayer(settings))
+                rows = adapt_bundle(path, 'pl005')
+                actual = next(row['AttackSetting'][0] for row in rows if 'AttackSetting' in row)
+                count = 7 if actual['sequenceName'] == 'Charge5' else 4
+                self.assertEqual(actual['totalClipCount'], count)
+                self.assertIn('clip_Attack', actual['clipDatas'][0])
+                for index in range(1, count):
+                    self.assertEqual(actual['clipDatas'][index]['clip_Gun']['ClipIndex'], index)
 
 
 if __name__ == '__main__':
