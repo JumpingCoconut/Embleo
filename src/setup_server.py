@@ -9,8 +9,8 @@ from scripts.adapt.adapt_debug_master_data import adapt_debug_master_data
 from scripts.adapt.adapt_debug_scenario import adapt_debug_scenario_file, batch_adapt_scenario_folder
 from scripts.adapt.adapt_chronology_for_server import generate_character_chronology_json
 
-from scripts.adapt.adapt_sequence_data import extract_all_SequenceSetting_files
-from scripts.adapt.adapt_sequence_data import adapt_sequence_data_from_animation_data
+from scripts.adapt.extract_sequence_data import extract_all_SequenceSetting_files
+from scripts.adapt.adapt_sequence_data import adapt_all_sequence_data
 
 from scripts.generate.generate_episode_master_data import generate_episode_master_data
 from scripts.generate.generate_temp_level_curve import generate_character_curve_list, generate_equipment_curve_list
@@ -39,7 +39,7 @@ adapt_scenario = True
 generate = True
 save_data = True
 
-DEBUG_CONFIG = True
+DEBUG_CONFIG = False
 
 if DEBUG_CONFIG:
     manifest = False
@@ -333,19 +333,19 @@ def setup(asset_server_link):
         generate_character_chronology_json(EXTRACT_FOLDER / "lang_ja/texts/commonterm/Chronology.json",
                                            CHRONOLOGY_FOLDER)
 
-    # Sequences are handled separately
+    # Sequences are handled separately from other master data
     if extract_sequences:
         extract_all_SequenceSetting_files(DOWNLOAD_FOLDER / "characters", SEQUENCE_SETTING_EXTRACT_FOLDER)
 
     if adapt_sequences:
-        character_sequence, enemy_sequence = adapt_sequence_data_from_animation_data(SEQUENCE_SETTING_EXTRACT_FOLDER, DOWNLOAD_FOLDER / "characters")
+        character_sequence, enemy_sequence = adapt_all_sequence_data(SEQUENCE_SETTING_EXTRACT_FOLDER, DOWNLOAD_FOLDER / "characters")
 
-        with open(MASTER_DATA_FOLDER / "CharacterSequenceMasterData.json", "w", encoding="UTF-8") as f:
-            if character_sequence != []:
+        if character_sequence != []:
+            with open(MASTER_DATA_FOLDER / "CharacterSequenceMasterData.json", "w", encoding="UTF-8") as f:
                 json.dump(character_sequence, f, indent=4)
 
-        with open(MASTER_DATA_FOLDER / "EnemySequenceMasterData.json", "w", encoding="UTF-8") as f:
-            if enemy_sequence != []:
+        if enemy_sequence != []:
+            with open(MASTER_DATA_FOLDER / "EnemySequenceMasterData.json", "w", encoding="UTF-8") as f:
                 json.dump(enemy_sequence, f, indent=4)
 
     if adapt_scenario:
