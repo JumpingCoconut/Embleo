@@ -1,4 +1,3 @@
-import json
 import sys
 import unittest
 from copy import deepcopy
@@ -6,17 +5,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
-from scripts.adapt.master_data.sequence import adapt_debug_sequence_list
+from scripts.adapt.sequence_data.tracks.Attack import normalize_IgnoreHitLayer
 
 
 class SequenceLayerMaskTests(unittest.TestCase):
     def adapt(self, settings):
-        rows = [{'AttackSetting': [{'id': 'pl010', 'sequenceName': 'SpecialSkill',
-                                   'clipDatas': [settings]}]}]
-        original = deepcopy(rows)
-        wire = adapt_debug_sequence_list(rows)
-        self.assertEqual(rows, original)
-        return json.loads(wire[0]['Data'])['AttackSetting'][0]['clipDatas'][0]
+        original = deepcopy(settings)
+        result = normalize_IgnoreHitLayer(settings)
+        self.assertEqual(settings, original)
+        return result
 
     def test_nested_summon_mask_uses_runtime_field(self):
         settings = {'clip_Summon': {'BulletAttackSettings': {
@@ -50,13 +47,9 @@ class SequenceLayerMaskTests(unittest.TestCase):
         self.assertEqual(self.adapt(settings), settings)
 
     def test_enemy_masks_use_the_same_conversion(self):
-        rows = adapt_debug_sequence_list([{'AttackSetting': [{
-            'id': 'en001', 'clipDatas': [{'clip_Gun': {
-                'IgnoreHitLayer': {'m_Bits': 8192}}}]}]}])
-        self.assertEqual(rows[0]['EnemyId'], 'en001')
-        setting = json.loads(rows[0]['Data'])['AttackSetting'][0]
-        self.assertEqual(setting['clipDatas'][0]['clip_Gun']['IgnoreHitLayer'],
-                         {'m_Mask': 8192})
+        setting = self.adapt({'enemy_Hit': {'IgnoreHitLayer': {'m_Bits': 8192}}})
+        self.assertEqual(setting['enemy_Hit']['IgnoreHitLayer'],
+                          {'m_Mask': 8192})
 
 
 if __name__ == '__main__':

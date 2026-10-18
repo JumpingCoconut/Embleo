@@ -2,24 +2,6 @@ import json
 from pathlib import Path
 
 
-def _normalize_layer_masks(value):
-    if isinstance(value, list):
-        return [_normalize_layer_masks(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-
-    result = {key: _normalize_layer_masks(item) for key, item in value.items()}
-    mask = result.get('IgnoreHitLayer')
-    if isinstance(mask, dict) and 'm_Bits' in mask and 'm_Mask' not in mask:
-        # Unity assets serialize LayerMask as m_Bits; the client's reflection
-        # JSON reader instead assigns its private signed-int field m_Mask.
-        bits = mask.pop('m_Bits')
-        if isinstance(bits, int) and 0x80000000 <= bits <= 0xffffffff:
-            bits -= 0x100000000
-        mask['m_Mask'] = bits
-    return result
-
-
 def adapt_debug_sequence_list(sequence_list):
     adapted_sequence_list = []
 
@@ -36,7 +18,7 @@ def adapt_debug_sequence_list(sequence_list):
             new_seq["EnemyId"] = ID
 
         new_seq["Category"] = category
-        new_seq["Data"] = json.dumps(_normalize_layer_masks(setting))  # Born to be a JSON, forced to be a string
+        new_seq["Data"] = json.dumps(setting)  # Born to be a JSON, forced to be a string
 
         for individual_setting in setting[category]:
             pass
