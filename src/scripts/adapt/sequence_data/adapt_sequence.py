@@ -144,7 +144,8 @@ def collect_resources(container):
     scan_for_resources(container)
 
     if resources:
-        print(resources)
+        # print(resources)
+        pass
 
     return resources
 
