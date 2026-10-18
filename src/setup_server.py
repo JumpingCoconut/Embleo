@@ -6,8 +6,6 @@ import json
 from pathlib import Path
 
 from scripts.adapt.adapt_debug_master_data import adapt_debug_master_data
-from scripts.adapt.master_data.special_skill import sequence_bundle_names, minion_command_bundle_names
-from scripts.adapt.master_data.healing_circle import healing_circle_bundle_names
 from scripts.adapt.adapt_debug_scenario import adapt_debug_scenario_file, batch_adapt_scenario_folder
 from scripts.adapt.adapt_chronology_for_server import generate_character_chronology_json
 
@@ -281,14 +279,8 @@ def setup(asset_server_link):
                                                             exclude="masterdata/episode/")
         download_manifest_files_from_asset_server(MasterData_files)
 
-        print("Downloading recovered character sequences")
-        with (EXTRACT_FOLDER / 'manifest.json').open(encoding='utf-8') as stream:
-            installed_manifest = json.load(stream)
-            special_skills = (sequence_bundle_names(installed_manifest)
-                              + minion_command_bundle_names(installed_manifest)
-                              + healing_circle_bundle_names(installed_manifest))
-        download_manifest_files_from_asset_server([
-            adapt_manifest_entry_for_server(entry) for entry in special_skills])
+        print("Downloading character data")
+        download_manifest_files_from_asset_server(get_all_files_in_folder_manifest("characters/player/"))
 
         print("Downloading enemy sequence assets")
         download_manifest_files_from_asset_server(get_all_files_in_folder_manifest("characters/enemy/"))
@@ -310,8 +302,8 @@ def setup(asset_server_link):
             extract_file(str(path))
 
     if adapt_master_data:
-        # This pipeline also merges recovered enemy movement into combat masters.
-        # A separate movement-only write would discard existing attack settings.
+        # Includes upstream character/enemy sequence adaptation and merges it
+        # with debug-only spells and costume/minion recovery in one write path.
         adapt_debug_master_data(EXTRACT_FOLDER, MASTER_DATA_FOLDER)
 
         generate_character_chronology_json(EXTRACT_FOLDER / "lang_ja/texts/commonterm/Chronology.json",

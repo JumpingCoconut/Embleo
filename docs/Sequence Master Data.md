@@ -234,11 +234,15 @@ These values are a snapshot, not validation rules. Do not truncate or synthesize
 
 `src/scripts/adapt/master_data/sequence.py` writes `CharacterSequenceMasterData.json` and `EnemySequenceMasterData.json`. It emits one row per owner/category with `CharacterId` or `EnemyId`, `Category`, and `Data` (a wrapper encoded as a JSON string). IDs containing `pl` are classified as characters; other IDs as enemies. Generated files under `src/data/` are ignored; make durable transformations in tracked adapter/server code and validate the decoded `Data` string afterward.
 
+Setup downloads character and enemy bundles and extracts their `SequenceSetting` timeline references. `adapt_sequence_data.py` uses the shared adapters in `sequence_data/adapt_sequence.py` and `sequence_data/tracks/` for regular attacks, movement, update parameters and costume Mystic Artes. Asset-derived records take precedence by owner, category and sequence name. Debug-only spells, existing base information absent from assets, and other unmatched records are retained. Resource lists are merged and deduplicated. Setup and CLI regeneration use this same pipeline; a second independent write must not discard the combined masters.
+
+Track adapters preserve serialized clip indices, including sparse slots and repeated shots sharing an index. Enemy clips without explicit indices use timeline traversal order. Multiple tracks contributing to the same category are combined before adaptation. The installed manifest selects exact bundle versions, ignoring retained older files; rerun setup before CLI regeneration when required bundles are missing. Unresolvable timeline references follow the upstream skip behavior, retaining any matching debug data rather than replacing it with empty settings.
+
 ### Regular healing circles
 
-Setup downloads Michelle's (`pl009`) `Attack2` and `Attack8` sequence bundles and recovers their healing summon settings from the timelines. These assets address summon clip index `1`; generated attack records preserve that index with an empty slot `0`. The client indexes `clipDatas` directly, so a one-slot debug record at index `0` cannot supply these settings.
+Setup downloads Michelle's (`pl009`) `Attack2` and `Attack8` sequence bundles and recovers their healing summon settings from the timelines. These assets address summon clip index `1`; generated attack records preserve that index, with the asset's register-buff settings in slot `0`. The client indexes `clipDatas` directly, so a one-slot debug record at index `0` cannot supply the summon settings.
 
-Recovery replaces only the matching attack records and merges their resource references. Other attacks, update settings, enemy movement, and costume-specific Mystic Artes remain on their existing pipelines. Existing installations must rerun setup to download the two required bundles before regenerating sequence masters. No APK change is required. Regression and installed-asset tests validate the lookup layout; visible circles and healing damaged allies still require a gameplay test.
+Recovery replaces matching attack records and merges their resource references. The shared asset adapter preserves the same indexed layout when adapting all player timelines. Existing installations must rerun setup to download the character bundles before regenerating sequence masters. No APK change is required. Regression and installed-asset tests validate the lookup layout; visible circles and healing damaged allies still require a gameplay test.
 
 ### Collision layer masks
 
@@ -265,8 +269,7 @@ After the bundles are installed, regenerate only sequence masters from `src/`:
 `tests/test_special_skill.py` covers index handling, separate costume keys, multiple clip families, opt-in charging, and optional coverage of every locally installed special-skill bundle. Asset-level validation does not establish in-game damage, targeting, or co-op synchronization; those require playtests.
 
 Instant charging is disabled by default. For repeated local tests, set `INSTANT_MYSTIC_ARTES = True` beside `SKIP_BATTLES` in `server.py`, or start the server with `EMBLEO_INSTANT_MYSTIC_ARTES=1`. Either switch enables charging in both episodes and installed raids; an unset environment variable or `0` does not override a true source flag. `combat_debug.py` supplies an infinite startup DoT buff whose fixed negative SkillGauge amount refills the native 300-point gauge on its first tick and after use. It changes response masters only and preserves existing startup buffs and account saves. Set the source flag to false, disable the environment variable, and restart the server to restore ordinary charging. This optional setting is independent of collision-mask serialization.
-Enemy movement recovery uses each prefab's installed timeline data
-(implementation reference: Spreit's `feature/sequence-adaptation`, `4e23147`).
+Enemy sequence recovery uses each prefab's installed timeline data.
 Setup downloads all `characters/enemy/` bundles, extracts
 each prefab's SequenceSetting and follows its animation bundle's action tracks.
 EnemyMove clips use timeline traversal indices because they have no serialized
@@ -275,9 +278,10 @@ Each generated movement record supplies `moveCount` indices alongside `direction
 and `speed`: the native lookup indexes `moveCount[index]` and requires it to equal
 `index`. A positive count with an empty index array can throw during playback.
 
-Recovered MoveSetting rows merge into existing enemy masters during sequence
-adaptation, including CLI regeneration. Existing attack rows and player/costume masters are preserved;
-upstream's unfinished attack extraction must not emit empty attack payloads.
+Recovered movement, attack and update-parameter rows merge into existing enemy
+masters during sequence adaptation, including CLI regeneration. Missing asset
+timelines do not remove existing records; missing attack base information does
+not erase debug defaults. Enemy attack settings use the shared attack adapter.
 The same setup runs in a normal src checkout and a flat runtime installation.
 Movement data verification does not establish that all enemy AI or camp waves
 work in gameplay.

@@ -45,9 +45,30 @@ class UpstreamSetupMergeTests(unittest.TestCase):
             with patch('builtins.open', side_effect=AssertionError('Disabled setup must not access data')):
                 setup_server.setup('')
 
+    def test_setup_downloads_all_upstream_character_assets_without_touching_saves(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            user = root / 'user/top'
+            user.mkdir(parents=True)
+            database = user / 'accounts.sqlite3'
+            unknown = user / 'unknown-player-file'
+            database.write_bytes(b'existing account database')
+            unknown.write_bytes(b'keep unknown data')
+            with patch.multiple(setup_server, manifest=False, download=True, extract=False,
+                                adapt_master_data=False, adapt_scenario=False, generate=False,
+                                DATA_FOLDER=root, SAVE_DATA_FOLDER=root/'user'), \
+                    patch.object(setup_server, 'get_all_files_in_folder_manifest', return_value=[]) as select, \
+                    patch.object(setup_server, 'download_manifest_files_from_asset_server'):
+                setup_server.setup('')
+            self.assertIn('characters/player/', [call.args[0] for call in select.call_args_list])
+            self.assertIn('characters/enemy/', [call.args[0] for call in select.call_args_list])
+            self.assertEqual(database.read_bytes(), b'existing account database')
+            self.assertEqual(unknown.read_bytes(), b'keep unknown data')
+
     def test_setup_keeps_sequences_from_integrated_master_data_pipeline(self):
         from scripts.adapt.master_data.sequence import adapt_debug_sequences_master_data
         from scripts.adapt import adapt_sequence_data as recovery
+        from scripts.adapt import extract_sequence_data as extraction
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -80,13 +101,13 @@ class UpstreamSetupMergeTests(unittest.TestCase):
                     patch.object(setup_server, 'generate_character_chronology_json'), \
                     patch.object(setup_server, 'extract_all_SequenceSetting_files', create=True,
                                  side_effect=AssertionError('Sequence recovery belongs inside master adaptation')), \
-                    patch.object(setup_server, 'adapt_sequence_data_from_animation_data', create=True,
+                    patch.object(setup_server, 'adapt_all_sequence_data', create=True,
                                  side_effect=AssertionError('Do not overwrite combined combat masters')), \
                     patch('scripts.adapt.master_data.sequence.recover_special_skills', return_value=[]), \
                     patch('scripts.adapt.master_data.sequence.recover_minion_commands', return_value=[]), \
                     patch('scripts.adapt.master_data.sequence.recover_healing_circles', return_value=[]), \
-                    patch.object(recovery, 'extract_all_SequenceSetting_files') as extract_settings, \
-                    patch.object(recovery, 'adapt_sequence_data_from_animation_data',
+                    patch.object(extraction, 'extract_all_SequenceSetting_files') as extract_settings, \
+                    patch.object(recovery, 'adapt_all_sequence_data',
                                  return_value=([], recovered)) as adapt_sequences:
                 setup_server.setup('')
 

@@ -3,24 +3,7 @@ from pathlib import Path
 
 from .special_skill import recover_special_skills, recover_minion_commands
 from .healing_circle import recover_healing_circles, replace_recovered_attacks
-
-
-def _normalize_layer_masks(value):
-    if isinstance(value, list):
-        return [_normalize_layer_masks(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-
-    result = {key: _normalize_layer_masks(item) for key, item in value.items()}
-    mask = result.get('IgnoreHitLayer')
-    if isinstance(mask, dict) and 'm_Bits' in mask and 'm_Mask' not in mask:
-        # Unity assets serialize LayerMask as m_Bits; the client's reflection
-        # JSON reader instead assigns its private signed-int field m_Mask.
-        bits = mask.pop('m_Bits')
-        if isinstance(bits, int) and 0x80000000 <= bits <= 0xffffffff:
-            bits -= 0x100000000
-        mask['m_Mask'] = bits
-    return result
+from ..sequence_data.tracks.Attack import normalize_IgnoreHitLayer as _normalize_layer_masks
 
 
 def adapt_debug_sequence_list(sequence_list):
@@ -93,23 +76,52 @@ def adapt_debug_sequences_master_data(input_file_path, output_folder, bundle_roo
     character_sequences = sorted(character_sequences, key=lambda x: x['CharacterId'])
     enemy_sequences = sorted(enemy_sequences, key=lambda x: x['EnemyId'])
 
-    # Keep CLI regeneration and fresh setup on the same sequence pipeline.
+    # Use upstream's complete asset adapters for both setup and CLI regeneration.
+    # Merge by sequence name: debug-only spells and recovered costume/minion
+    # payloads must not disappear when an asset category has partial coverage.
     bundle_root = Path(bundle_root)
-    if (bundle_root / 'characters/enemy').exists():
-        from ..adapt_sequence_data import (
-            extract_all_SequenceSetting_files,
-            adapt_sequence_data_from_animation_data, merge_enemy_movement,
-        )
+    if (bundle_root / 'characters').exists():
+        from ..extract_sequence_data import extract_all_SequenceSetting_files
+        from ..adapt_sequence_data import adapt_all_sequence_data
         settings = bundle_root.parent / 'extract/SequenceSetting'
         extract_all_SequenceSetting_files(bundle_root / 'characters', settings)
-        _, recovered = adapt_sequence_data_from_animation_data(settings, bundle_root / 'characters')
-        enemy_sequences = merge_enemy_movement(enemy_sequences, recovered)
+        characters, enemies = adapt_all_sequence_data(settings, bundle_root / 'characters')
+        character_sequences = merge_sequence_masters(character_sequences, characters, 'CharacterId')
+        enemy_sequences = merge_sequence_masters(enemy_sequences, enemies, 'EnemyId')
 
     with open(output_folder / "CharacterSequenceMasterData.json", "w") as of:
         json.dump(character_sequences, of, indent=4)
 
     with open(output_folder / "EnemySequenceMasterData.json", "w") as of:
         json.dump(enemy_sequences, of, indent=4)
+
+
+def merge_sequence_masters(existing, recovered, owner_key):
+    """Prefer asset payloads while retaining debug-only sequences and fields."""
+    result = {(row[owner_key], row['Category']): row for row in existing}
+    for row in recovered:
+        owner, category = row[owner_key], row['Category']
+        key = (owner, category)
+        incoming = json.loads(row['Data'])[category]
+        old = json.loads(result[key]['Data'])[category] if key in result else None
+        if category == 'ResourceList':
+            values = (old or {}).get('values', []) + incoming['values']
+            resources = {(r['type'], r['value']): r for r in values}
+            merged = {**(old or {}), **incoming, 'values': list(resources.values())}
+        else:
+            entries = {entry['sequenceName']: entry for entry in (old or [])}
+            for entry in incoming:
+                name = entry['sequenceName']
+                previous = entries.get(name, {})
+                entry = {**previous, **entry}
+                # EnemyAnimator and some non-attack player clips don't carry
+                # baseInfo. An absent asset value must not erase debug defaults.
+                if category == 'AttackSetting' and entry.get('baseInfo') is None and 'baseInfo' in previous:
+                    entry['baseInfo'] = previous['baseInfo']
+                entries[name] = entry
+            merged = list(entries.values())
+        result[key] = {**result.get(key, {}), **row, 'Data': json.dumps(_normalize_layer_masks({category: merged}))}
+    return list(result.values())
 
 
 if __name__ == "__main__":
