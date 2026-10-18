@@ -232,4 +232,8 @@ These values are a snapshot, not validation rules. Do not truncate or synthesize
 
 ## Adapter
 
-`src/scripts/adapt/master_data/sequence.py` writes `CharacterSequenceMasterData.json` and `EnemySequenceMasterData.json`. It emits one row per owner/category wrapper with `CharacterId` or `EnemyId`, `Category`, and `Data` (the original wrapper encoded as a JSON string). IDs containing `pl` are classified as characters; other IDs as enemies. Generated files under `src/data/` are ignored; make durable transformations in tracked adapter/server code and validate the decoded `Data` string afterward.
+`src/scripts/adapt/master_data/sequence.py` writes `CharacterSequenceMasterData.json` and `EnemySequenceMasterData.json`. It emits one row per owner/category wrapper with `CharacterId` or `EnemyId`, `Category`, and `Data` (the wrapper encoded as a JSON string). IDs containing `pl` are classified as characters; other IDs as enemies. Generated files under `src/data/` are ignored; make durable transformations in tracked adapter/server code and validate the decoded `Data` string afterward.
+
+### Collision layer masks
+
+For `IgnoreHitLayer`, serialize Unity asset `m_Bits` values as the client's signed 32-bit `m_Mask` field, including nested projectile and summon settings. The client's JSON reader ignores `m_Bits`, leaving a zero mask that can make ground contact delete a summon before its damage window begins. Preserve existing runtime fields and unrelated settings. Regenerate sequence masters after changing the adapter; no APK change is required.
