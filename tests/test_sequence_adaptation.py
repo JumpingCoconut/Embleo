@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from scripts.adapt.sequence_data.adapt_sequence import adapt_sequence_timeline, serialize_setting, get_sequence_timeline_data
 from scripts.adapt.sequence_data.tracks.Attack import adapt_attack_track
 from scripts.adapt.sequence_data.tracks.UpdateParameter import adapt_update_parameter_track
-from scripts.adapt.master_data.sequence import merge_sequence_masters
+from scripts.adapt.master_data.sequence import adapt_debug_sequence_list, merge_sequence_masters
 from scripts.adapt.extract_sequence_data import installed_bundle_paths
 import tempfile
 
@@ -73,6 +73,25 @@ class SequenceAdaptationTests(unittest.TestCase):
         self.assertEqual(row['clipDatas'][2], {'clip_SpecialSkillMagic': {'ClipIndex': 2}})
         self.assertEqual(row['clipDatas'][0], {'attackBaseInfo': {'IsInvincible': 1}})
 
+    def test_multiple_update_tracks_merge_slots_and_shared_index_families(self):
+        timeline = {'action_name': 'Skill', 'tracks': [
+            track('UpdateParameter Track', [
+                clip('UpdateAttackInfo Clip', clipIndex=0, attackBaseInfo={'IsInvincible': 1}),
+                clip('SpecialSkillMagic Clip', clipSettings={'ClipIndex': 2, 'Buffs': ['first']})]),
+            track('UpdateParameter Track', [
+                clip('SpecialSkillMagic Clip', clipSettings={'ClipIndex': 0, 'Buffs': ['shared']}),
+                clip('SpecialSkillMagic Clip', clipSettings={'ClipIndex': 2, 'Buffs': ['later']})])]}
+        original = deepcopy(timeline)
+        row = adapt_sequence_timeline(timeline, 'pl001')['UpdateParameterSetting']
+        self.assertEqual(row['totalClipCount'], 3)
+        self.assertEqual(row['clipDatas'][0], {
+            'attackBaseInfo': {'IsInvincible': 1},
+            'clip_SpecialSkillMagic': {'ClipIndex': 0, 'Buffs': ['shared']}})
+        self.assertEqual(row['clipDatas'][1], {})
+        self.assertEqual(row['clipDatas'][2], {
+            'clip_SpecialSkillMagic': {'ClipIndex': 2, 'Buffs': ['first']}})
+        self.assertEqual(timeline, original)
+
     def test_resources_cover_effect_sound_and_voice_tracks_as_one_object(self):
         timeline = {'action_name': 'Skill', 'tracks': [
             track('Effect Track', [clip('EffectCall Clip', effectSettings=[{'PrefabPath': 'External/Effects/test'}])]),
@@ -93,6 +112,20 @@ class SequenceAdaptationTests(unittest.TestCase):
         value = json.loads(result[0]['Data'])['ResourceList']
         self.assertEqual(value['unknown'], 4)
         self.assertEqual([r['value'] for r in value['values']], ['old', 'new'])
+
+    def test_debug_and_asset_resources_share_serialization(self):
+        resources = [
+            {'id': 'pl001', 'values': [{'type': 1, 'value': 'shared'}]},
+            {'id': 'pl001', 'values': [{'type': 1, 'value': 'shared'},
+                                     {'type': 10, 'value': 'shared'}]}]
+        original = deepcopy(resources)
+        rows = adapt_debug_sequence_list([{'ResourceList': [entry]} for entry in resources])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['Data'], serialize_setting('ResourceList', 'pl001', resources))
+        self.assertEqual(json.loads(rows[0]['Data']), {'ResourceList': {
+            'id': 'pl001', 'values': [{'type': 1, 'value': 'shared'},
+                                     {'type': 10, 'value': 'shared'}]}})
+        self.assertEqual(resources, original)
 
     def test_invalid_indices_fail_before_generating_unusable_masters(self):
         for index in (-1, 4096, True):

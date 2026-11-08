@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from ..sequence_data.adapt_sequence import serialize_setting
 from ..sequence_data.tracks.Attack import normalize_IgnoreHitLayer as _normalize_layer_masks
 
 
@@ -14,15 +15,6 @@ def adapt_debug_sequence_list(sequence_list):
             grouped.setdefault((entry['id'], category), []).append(entry)
 
     for (ID, category), entries in grouped.items():
-        setting = {category: entries}
-        if category == 'ResourceList':
-            resources = {}
-            for entry in entries:
-                for resource in entry['values']:
-                    resources.setdefault((resource['type'], resource['value']), resource)
-            # ResourceListWrapper contains one ResourceListInfo, not an array.
-            setting = {category: {'id': ID, 'values': list(resources.values())}}
-
         new_seq = {}
 
         if "pl" in ID:
@@ -31,7 +23,7 @@ def adapt_debug_sequence_list(sequence_list):
             new_seq["EnemyId"] = ID
 
         new_seq["Category"] = category
-        new_seq["Data"] = json.dumps(_normalize_layer_masks(setting))  # Born to be a JSON, forced to be a string
+        new_seq["Data"] = serialize_setting(category, ID, _normalize_layer_masks(entries))
 
         adapted_sequence_list.append(new_seq)
 
